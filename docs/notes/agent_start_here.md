@@ -11,6 +11,10 @@ Nguyen tac:
 - Khong doc toan bo `docs/notes` neu task moi chi cham 1 vung nho.
 - `docs/*.md` o root la reference docs, khong phai onboarding docs.
 - Neu task nam trong phan da duoc map ky, doc `runtime_flow_map.md` truoc khi doc code.
+- Git workflow mac dinh cua repo nay:
+  - khong tao branch moi;
+  - commit truc tiep tren `main`;
+  - sau khi xong va da verify, phai `git push` len `origin/main`.
 
 ## Thu tu doc toi thieu
 

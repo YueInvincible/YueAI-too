@@ -20,6 +20,10 @@ Chi giu 3 thu:
 - Khong mo rong file handoff nay thanh tai lieu dai.
 - Khong doc toan bo `docs/` theo kieu tuan tu. Handoff nay chi dung de chon nhanh 1 nhanh note lien quan.
 - Truoc khi lam domain nao, chi doc note domain do va cac note phu thuoc truc tiep.
+- Git workflow cho repo nay:
+  - khong tao branch moi;
+  - lam viec truc tiep tren `main`;
+  - sau khi hoan thanh thay doi va verify, phai `git push` len `origin/main`.
 - Lam xong gi chi note `done` khi da verify bang lenh/test that.
 - Neu chua chac chan, phai ghi ro vao note cua domain do:
   - dieu gi da xac nhan;
