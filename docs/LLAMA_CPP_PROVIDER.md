@@ -4,6 +4,12 @@ The `llama.cpp` plugin is now a thin wrapper around the shared
 OpenAI-compatible adapter. It exists for a simple single-provider llama.cpp
 setup, while multi-provider routing now lives in `openai.compat`.
 
+Current project direction:
+
+- keep `llama.cpp` support;
+- prioritize `LM Studio` for the main local workflow;
+- defer a dedicated `llama.cpp` runtime editor until after core/tooling work.
+
 It still does not download, launch, or manage a model. Model lifecycle will
 later belong to the resource manager.
 

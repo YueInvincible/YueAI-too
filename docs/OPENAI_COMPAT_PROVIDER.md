@@ -16,10 +16,19 @@ with SSE token streaming and OpenAI-style tool calls.
 - One adapter for cloud and local backends.
 - One config surface for normal chat and coding-agent routing.
 - Works with providers that already expose an OpenAI-compatible API.
+- This is also the main runtime editor surface in the desktop shell for:
+  - OpenAI
+  - Google AI
+  - OpenRouter
+  - Ollama
+  - LM Studio
+  - llama.cpp-compatible endpoints
 
 ## Supported backends in config
 
 - `openai`
+- `google`
+- `openrouter`
 - `ollama`
 - `lmstudio`
 - `llama.cpp`
@@ -27,6 +36,14 @@ with SSE token streaming and OpenAI-style tool calls.
 
 `backend` only affects defaults such as `base_url` and API-key handling. The
 wire format is still the same OpenAI-compatible chat endpoint.
+
+The desktop runtime editor currently supports:
+
+- add/remove provider rows
+- quick presets
+- custom headers
+- apply runtime
+- save back to TOML
 
 ## Configuration
 
@@ -38,6 +55,8 @@ enabled = ["openai.compat"]
 [plugins.options."openai.compat"]
 providers = [
   { provider_name = "openai.coder", backend = "openai", model = "gpt-4.1-mini", api_key_env = "OPENAI_API_KEY" },
+  { provider_name = "google.chat", backend = "google", model = "gemini-3.5-flash", api_key_env = "GEMINI_API_KEY" },
+  { provider_name = "openrouter.claude", backend = "openrouter", model = "anthropic/claude-3.5-sonnet", api_key_env = "OPENROUTER_API_KEY" },
   { provider_name = "ollama.chat", backend = "ollama", base_url = "http://127.0.0.1:11434/v1", model = "qwen2.5:7b-instruct" },
   { provider_name = "lmstudio.chat", backend = "lmstudio", base_url = "http://127.0.0.1:1234/v1", model = "openai/gpt-oss-20b" },
   { provider_name = "llama.coder", backend = "llama.cpp", base_url = "http://127.0.0.1:8080", model = "Qwen2.5-Coder-7B-Instruct-GGUF" },
@@ -80,10 +99,19 @@ time. They are not persisted into conversation history.
 
 - `openai` defaults to `https://api.openai.com/v1` and reads `OPENAI_API_KEY`
   when `api_key` / `api_key_env` is not set.
+- `google` defaults to `https://generativelanguage.googleapis.com/v1beta/openai`
+  and reads `GEMINI_API_KEY` first, then `GOOGLE_API_KEY`.
+- `openrouter` defaults to `https://openrouter.ai/api/v1` and reads
+  `OPENROUTER_API_KEY`.
 - `ollama` defaults to `http://127.0.0.1:11434/v1` and uses `ollama` as the
   placeholder API key if none is supplied.
 - `lmstudio` defaults to `http://127.0.0.1:1234/v1`.
 - `llama.cpp` defaults to `http://127.0.0.1:8080`.
+
+Current local-first direction:
+
+- `LM Studio` is the preferred local path for normal agent use.
+- `llama.cpp` remains supported but its dedicated editor path is deferred.
 
 ## Limitations
 

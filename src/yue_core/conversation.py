@@ -733,16 +733,23 @@ class ConversationOrchestrator:
             raise asyncio.CancelledError
 
     def _bounded_tool_result(self, result) -> str:
-        payload = {
-            "status": result.status.value,
-            "output": result.output if result.status is ToolStatus.SUCCEEDED else None,
-            "error": result.error,
-        }
+        payload = self._tool_result_payload(result)
         rendered = json.dumps(payload, ensure_ascii=False, default=str)
         if len(rendered) <= self.max_tool_output_chars:
             return rendered
         marker = "...[truncated]"
         return rendered[: self.max_tool_output_chars - len(marker)] + marker
+
+    @staticmethod
+    def _tool_result_payload(result) -> dict[str, Any]:
+        return {
+            "request_id": result.request_id,
+            "tool_name": result.tool_name,
+            "ok": result.status is ToolStatus.SUCCEEDED,
+            "status": result.status.value,
+            "output": result.output if result.status is ToolStatus.SUCCEEDED else None,
+            "error": result.error,
+        }
 
     def resolve_provider(
         self,

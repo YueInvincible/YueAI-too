@@ -1,10 +1,14 @@
 import unittest
 import asyncio
+import os
+from pathlib import Path
+from unittest.mock import patch
 
 from tests.support import workspace_temp_dir
 from yue_core.app import YueCore
 from yue_core.config import Settings
 from yue_core.contracts import ModelEvent, ModelEventType
+from tests.test_tools import FakeProcess
 
 
 class BlockingProvider:
@@ -57,6 +61,153 @@ class AppLifecycleTests(unittest.IsolatedAsyncioTestCase):
             await core.stop()
             self.assertTrue(task.cancelled())
             unsubscribe()
+
+    async def test_update_conversation_settings_updates_runtime_routes(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            core = YueCore(settings)
+            await core.start()
+            snapshot = await core.update_conversation_settings(
+                {
+                    "default_provider": "fake.echo",
+                    "routes": {
+                        "chat": {
+                            "provider": "fake.echo",
+                            "prompt_profile": "default",
+                        },
+                        "coding_agent": {
+                            "provider": "fake.echo",
+                            "prompt_profile": "coding_agent",
+                        },
+                    },
+                    "prompt_profiles": {
+                        "default": {
+                            "personality": "Short",
+                            "system_instruction": "",
+                            "tool_instruction": "",
+                            "response_instruction": "",
+                        },
+                        "coding_agent": {
+                            "personality": "",
+                            "system_instruction": "Write code",
+                            "tool_instruction": "",
+                            "response_instruction": "",
+                        },
+                    },
+                }
+            )
+            await core.stop()
+        self.assertEqual(
+            snapshot["prompt_profiles"]["coding_agent"]["system_instruction"],
+            "Write code",
+        )
+
+    async def test_update_openai_compatible_settings_reloads_provider_registry(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            settings.plugins.roots = [(Path.cwd() / "plugins").resolve()]
+            settings.plugins.enabled = ["openai.compat"]
+            settings.plugins.options = {
+                "openai.compat": {
+                    "providers": [
+                        {
+                            "provider_name": "ollama.chat",
+                            "backend": "ollama",
+                            "base_url": "http://127.0.0.1:11434/v1",
+                            "model": "qwen2.5:7b-instruct",
+                        }
+                    ]
+                }
+            }
+            settings.conversation.default_provider = "ollama.chat"
+            settings.conversation.routes["chat"] = {
+                "provider": "ollama.chat",
+                "prompt_profile": "default",
+            }
+            settings.conversation.routes["coding_agent"] = {
+                "provider": "ollama.chat",
+                "prompt_profile": "coding_agent",
+            }
+            core = YueCore(settings)
+            await core.start()
+            snapshot = await core.update_openai_compatible_settings(
+                {
+                    "providers": [
+                        {
+                            "provider_name": "ollama.chat",
+                            "backend": "ollama",
+                            "base_url": "http://127.0.0.1:11434/v1",
+                            "model": "qwen2.5-coder:7b",
+                        }
+                    ]
+                }
+            )
+            await core.stop()
+        self.assertEqual(snapshot["providers"][0]["provider_name"], "ollama.chat")
+        self.assertEqual(snapshot["providers"][0]["model"], "qwen2.5-coder:7b")
+
+    async def test_update_anthropic_messages_settings_reloads_provider_registry(self):
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}, clear=False):
+            with workspace_temp_dir() as temp:
+                settings = Settings()
+                settings.core.data_dir = temp
+                settings.plugins.roots = [(Path.cwd() / "plugins").resolve()]
+                settings.plugins.enabled = ["anthropic.messages"]
+                settings.plugins.options = {
+                    "anthropic.messages": {
+                        "providers": [
+                            {
+                                "provider_name": "claude.coder",
+                                "backend": "anthropic",
+                                "base_url": "https://api.anthropic.com",
+                                "model": "claude-sonnet-4-20250514",
+                                "api_key_env": "ANTHROPIC_API_KEY",
+                            }
+                        ]
+                    }
+                }
+                settings.conversation.default_provider = "claude.coder"
+                settings.conversation.routes["chat"] = {
+                    "provider": "claude.coder",
+                    "prompt_profile": "default",
+                }
+                settings.conversation.routes["coding_agent"] = {
+                    "provider": "claude.coder",
+                    "prompt_profile": "coding_agent",
+                }
+                core = YueCore(settings)
+                await core.start()
+                snapshot = await core.update_anthropic_messages_settings(
+                    {
+                        "providers": [
+                            {
+                                "provider_name": "claude.coder",
+                                "backend": "anthropic",
+                                "base_url": "https://api.anthropic.com",
+                                "model": "claude-3-7-sonnet-latest",
+                                "api_key_env": "ANTHROPIC_API_KEY",
+                            }
+                        ]
+                    }
+                )
+                await core.stop()
+        self.assertEqual(snapshot["providers"][0]["provider_name"], "claude.coder")
+        self.assertEqual(snapshot["providers"][0]["model"], "claude-3-7-sonnet-latest")
+
+    async def test_stop_kills_active_shell_sessions(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            core = YueCore(settings)
+            fake_process = FakeProcess(stdout=b"ready\n")
+            with patch("yue_core.shell_sessions.asyncio.create_subprocess_exec", return_value=fake_process):
+                await core.start()
+                await core.shell_sessions.start("dev-server", "echo ready", temp)
+                await asyncio.sleep(0)
+                await core.stop()
+        self.assertTrue(fake_process.killed)
 
 
 if __name__ == "__main__":

@@ -34,6 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     chat.add_argument("text")
     chat.add_argument("--provider")
     chat.add_argument("--provider-role", default="chat")
+    subparsers.add_parser("providers-health")
     subparsers.add_parser("serve")
     desktop_demo = subparsers.add_parser("desktop-demo")
     desktop_demo.add_argument(
@@ -92,6 +93,9 @@ async def run(args: argparse.Namespace) -> int:
         if args.command == "list-tools":
             for spec in core.registry.list_specs():
                 print(f"{spec.name}\t{spec.capability.value}\t{spec.risk.value}")
+            return 0
+        if args.command == "providers-health":
+            print(json.dumps(await core.providers.health(), ensure_ascii=False, indent=2))
             return 0
         if args.command == "invoke":
             raw_arguments = (

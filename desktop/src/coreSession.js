@@ -31,8 +31,53 @@ export class CoreSessionClient {
     return this.client.desktopState();
   }
 
+  async providersHealth() {
+    return this.client.providersHealth();
+  }
+
+  async getConversationSettings() {
+    return this.client.getConversationSettings();
+  }
+
+  async updateConversationSettings(payload) {
+    return this.client.updateConversationSettings(payload);
+  }
+
+  async getOpenAICompatibleSettings() {
+    return this.client.getOpenAICompatibleSettings();
+  }
+
+  async updateOpenAICompatibleSettings(payload) {
+    return this.client.updateOpenAICompatibleSettings(payload);
+  }
+
+  async getAnthropicMessagesSettings() {
+    return this.client.getAnthropicMessagesSettings();
+  }
+
+  async updateAnthropicMessagesSettings(payload) {
+    return this.client.updateAnthropicMessagesSettings(payload);
+  }
+
   async desktopCommand(command, value) {
     return this.client.desktopCommand(command, value, this.sessionId);
+  }
+
+  async requestApproval(actionDescription, riskLevel, actor = "desktop-ui") {
+    return this.client.requestApproval(
+      actionDescription,
+      riskLevel,
+      actor,
+      this.sessionId,
+    );
+  }
+
+  async listPendingApprovals() {
+    return this.client.listPendingApprovals();
+  }
+
+  async respondApproval(approvalId, approved) {
+    return this.client.respondApproval(approvalId, approved);
   }
 
   async createConversation(title = "Yue Desktop") {

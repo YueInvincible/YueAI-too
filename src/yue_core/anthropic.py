@@ -22,22 +22,12 @@ from .contracts import (
 
 def default_base_url(backend: str) -> str:
     normalized = backend.strip().lower()
-    if normalized == "openai":
-        return "https://api.openai.com/v1"
-    if normalized == "google":
-        return "https://generativelanguage.googleapis.com/v1beta/openai"
-    if normalized == "ollama":
-        return "http://127.0.0.1:11434/v1"
-    if normalized == "lmstudio":
-        return "http://127.0.0.1:1234/v1"
-    if normalized == "llama.cpp":
-        return "http://127.0.0.1:8080"
-    if normalized == "openrouter":
-        return "https://openrouter.ai/api/v1"
-    return "http://127.0.0.1:8080"
+    if normalized == "anthropic":
+        return "https://api.anthropic.com"
+    return "https://api.anthropic.com"
 
 
-class OpenAICompatibleProvider:
+class AnthropicMessagesProvider:
     def __init__(self, config: Mapping[str, Any]) -> None:
         self.name = str(
             config.get("provider_name")
@@ -45,7 +35,7 @@ class OpenAICompatibleProvider:
             or config.get("provider")
             or ""
         ).strip()
-        self.backend = str(config.get("backend", "custom")).strip().lower()
+        self.backend = str(config.get("backend", "anthropic")).strip().lower()
         self.base_url = str(
             config.get("base_url") or default_base_url(self.backend)
         ).rstrip("/")
@@ -57,11 +47,16 @@ class OpenAICompatibleProvider:
         )
         self.temperature = float(config.get("temperature", 0.7))
         self.max_tokens = int(config.get("max_tokens", 1024))
+        self.anthropic_version = str(
+            config.get("anthropic_version", "2023-06-01")
+        ).strip()
         self.extra_headers = self._coerce_headers(config.get("headers", {}))
         if not self.name:
             raise ValueError("provider_name must not be empty")
         if not self.model:
             raise ValueError(f"{self.name} model must not be empty")
+        if not self.api_key:
+            raise ValueError(f"{self.name} API key must not be empty")
         if self.timeout_seconds <= 0:
             raise ValueError(f"{self.name} timeout_seconds must be positive")
         if self.health_timeout_seconds <= 0:
@@ -70,24 +65,25 @@ class OpenAICompatibleProvider:
             raise ValueError(f"{self.name} max_tokens must be positive")
 
     async def generate(self, request: ModelRequest, context: ModelContext):
-        payload = {
+        system_parts = []
+        messages = []
+        for message in request.messages:
+            if message.role is MessageRole.SYSTEM:
+                if message.content:
+                    system_parts.append(message.content)
+                continue
+            messages.append(self._message_payload(message))
+        payload: dict[str, Any] = {
             "model": self.model,
-            "messages": [self._message_payload(message) for message in request.messages],
+            "messages": messages,
             "stream": True,
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
         }
-        tool_name_map: dict[str, str] = {}
-        tools = []
-        for spec in request.tools:
-            safe_name = spec.name.replace(".", "__")
-            if safe_name in tool_name_map and tool_name_map[safe_name] != spec.name:
-                raise RuntimeError(f"Tool-name collision after encoding: {spec.name}")
-            tool_name_map[safe_name] = spec.name
-            tools.append(self._tool_payload(spec, safe_name))
-        if tools:
-            payload["tools"] = tools
-            payload["tool_choice"] = "auto"
+        if system_parts:
+            payload["system"] = "\n\n".join(system_parts)
+        if request.tools:
+            payload["tools"] = [self._tool_payload(spec) for spec in request.tools]
 
         queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
         loop = asyncio.get_running_loop()
@@ -111,28 +107,32 @@ class OpenAICompatibleProvider:
                 if kind == "done":
                     break
 
-                choice = (item.get("choices") or [{}])[0]
-                delta = choice.get("delta") or {}
-                content = delta.get("content")
-                if content:
-                    yield ModelEvent(ModelEventType.TEXT_DELTA, text=str(content))
-
-                for fragment in delta.get("tool_calls") or []:
-                    index = int(fragment.get("index", 0))
-                    aggregate = tool_fragments.setdefault(
-                        index,
-                        {"id": "", "name": "", "arguments": ""},
-                    )
-                    if fragment.get("id"):
-                        aggregate["id"] = str(fragment["id"])
-                    function = fragment.get("function") or {}
-                    if function.get("name"):
-                        aggregate["name"] += str(function["name"])
-                    if function.get("arguments"):
-                        aggregate["arguments"] += str(function["arguments"])
-
-                finish_reason = choice.get("finish_reason")
-                if finish_reason is not None:
+                event_type = item.get("type")
+                if event_type == "content_block_start":
+                    block = item.get("content_block") or {}
+                    if block.get("type") == "text" and block.get("text"):
+                        yield ModelEvent(ModelEventType.TEXT_DELTA, text=str(block["text"]))
+                    elif block.get("type") == "tool_use":
+                        tool_fragments[int(item.get("index", 0))] = {
+                            "id": str(block.get("id", "")),
+                            "name": str(block.get("name", "")),
+                            "arguments": (
+                                json.dumps(block.get("input"), ensure_ascii=False)
+                                if block.get("input")
+                                else ""
+                            ),
+                        }
+                elif event_type == "content_block_delta":
+                    delta = item.get("delta") or {}
+                    if delta.get("type") == "text_delta" and delta.get("text"):
+                        yield ModelEvent(ModelEventType.TEXT_DELTA, text=str(delta["text"]))
+                    elif delta.get("type") == "input_json_delta":
+                        aggregate = tool_fragments.setdefault(
+                            int(item.get("index", 0)),
+                            {"id": "", "name": "", "arguments": ""},
+                        )
+                        aggregate["arguments"] += str(delta.get("partial_json", ""))
+                elif event_type == "message_stop":
                     break
 
             for index in sorted(tool_fragments):
@@ -141,8 +141,9 @@ class OpenAICompatibleProvider:
                     raise RuntimeError(
                         f"{self.name} emitted a tool call without a name"
                     )
+                raw_arguments = fragment["arguments"] or "{}"
                 try:
-                    arguments = json.loads(fragment["arguments"] or "{}")
+                    arguments = json.loads(raw_arguments)
                 except json.JSONDecodeError as exc:
                     raise RuntimeError(
                         f"{self.name} emitted invalid tool arguments: {exc}"
@@ -153,7 +154,7 @@ class OpenAICompatibleProvider:
                     ModelEventType.TOOL_CALL,
                     tool_call=ModelToolCall(
                         id=fragment["id"] or f"tool-{index}",
-                        name=tool_name_map.get(fragment["name"], fragment["name"]),
+                        name=fragment["name"],
                         arguments=arguments,
                     ),
                 )
@@ -179,11 +180,12 @@ class OpenAICompatibleProvider:
         response_holder: list[Any],
     ) -> None:
         request = urllib.request.Request(
-            self._chat_url(),
+            self._messages_url(),
             data=json.dumps(payload).encode("utf-8"),
-            headers=self._headers(),
+            headers=self._headers(accept_sse=True),
             method="POST",
         )
+        current_event = ""
         try:
             with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
                 response_holder.append(response)
@@ -191,12 +193,19 @@ class OpenAICompatibleProvider:
                     if stop_event.is_set():
                         break
                     line = raw_line.decode("utf-8").strip()
-                    if not line or line.startswith(":") or not line.startswith("data:"):
+                    if not line:
                         continue
-                    data = line[5:].strip()
-                    if data == "[DONE]":
-                        break
-                    self._queue(loop, queue, ("data", json.loads(data)))
+                    if line.startswith("event:"):
+                        current_event = line[6:].strip()
+                        continue
+                    if line.startswith("data:"):
+                        data = line[5:].strip()
+                        if not data:
+                            continue
+                        payload_item = json.loads(data)
+                        if payload_item.get("type") == "ping" or current_event == "ping":
+                            continue
+                        self._queue(loop, queue, ("data", payload_item))
             self._queue(loop, queue, ("done", None))
         except urllib.error.HTTPError as exc:
             try:
@@ -212,28 +221,30 @@ class OpenAICompatibleProvider:
             if not stop_event.is_set():
                 self._queue(loop, queue, ("error", f"{self.name} request failed: {exc}"))
 
-    def _chat_url(self) -> str:
-        if self.base_url.endswith("/chat/completions"):
+    def _messages_url(self) -> str:
+        if self.base_url.endswith("/v1/messages"):
             return self.base_url
-        if self.base_url.endswith("/v1"):
-            return f"{self.base_url}/chat/completions"
-        return f"{self.base_url}/v1/chat/completions"
+        return f"{self.base_url}/v1/messages"
 
-    def _headers(self) -> dict[str, str]:
+    def _models_url(self) -> str:
+        if self.base_url.endswith("/v1/models"):
+            return self.base_url
+        return f"{self.base_url}/v1/models"
+
+    def _headers(self, *, accept_sse: bool = False) -> dict[str, str]:
         headers = {
             "Content-Type": "application/json",
-            "Accept": "text/event-stream",
+            "x-api-key": self.api_key,
+            "anthropic-version": self.anthropic_version,
             **self.extra_headers,
         }
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+        headers["Accept"] = "text/event-stream" if accept_sse else "application/json"
         return headers
 
     def _health_sync(self) -> dict[str, Any]:
-        url = self._models_url()
         request = urllib.request.Request(
-            url,
-            headers=self._health_headers(),
+            self._models_url(),
+            headers=self._headers(accept_sse=False),
             method="GET",
         )
         try:
@@ -297,33 +308,7 @@ class OpenAICompatibleProvider:
         env_name = str(config.get("api_key_env", "")).strip()
         if env_name:
             return os.environ.get(env_name, "")
-        if self.backend == "openai":
-            return os.environ.get("OPENAI_API_KEY", "")
-        if self.backend == "google":
-            return os.environ.get("GEMINI_API_KEY", "") or os.environ.get(
-                "GOOGLE_API_KEY", ""
-            )
-        if self.backend == "ollama":
-            return "ollama"
-        if self.backend == "openrouter":
-            return os.environ.get("OPENROUTER_API_KEY", "")
-        return ""
-
-    def _models_url(self) -> str:
-        if self.base_url.endswith("/models"):
-            return self.base_url
-        if self.base_url.endswith("/v1"):
-            return f"{self.base_url}/models"
-        return f"{self.base_url}/v1/models"
-
-    def _health_headers(self) -> dict[str, str]:
-        headers = {
-            "Accept": "application/json",
-            **self.extra_headers,
-        }
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
-        return headers
+        return os.environ.get("ANTHROPIC_API_KEY", "")
 
     @staticmethod
     def _coerce_headers(value: Any) -> dict[str, str]:
@@ -332,43 +317,46 @@ class OpenAICompatibleProvider:
         return {str(key): str(item) for key, item in value.items()}
 
     @staticmethod
-    def _message_payload(message: ChatMessage) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "role": message.role.value,
-            "content": message.content,
+    def _tool_payload(spec) -> dict[str, Any]:
+        return {
+            "name": spec.name,
+            "description": spec.description,
+            "input_schema": dict(spec.input_schema),
         }
-        if message.role is MessageRole.ASSISTANT and message.tool_calls:
-            payload["tool_calls"] = [
-                {
-                    "id": call.id,
-                    "type": "function",
-                    "function": {
-                        "name": call.name,
-                        "arguments": json.dumps(
-                            call.arguments,
-                            ensure_ascii=False,
-                            separators=(",", ":"),
-                        ),
-                    },
-                }
-                for call in message.tool_calls
-            ]
-        if message.role is MessageRole.TOOL:
-            payload["tool_call_id"] = message.tool_call_id
-            if message.tool_name:
-                payload["name"] = message.tool_name
-        return payload
 
     @staticmethod
-    def _tool_payload(spec, safe_name: str) -> dict[str, Any]:
-        return {
-            "type": "function",
-            "function": {
-                "name": safe_name,
-                "description": spec.description,
-                "parameters": dict(spec.input_schema),
-            },
-        }
+    def _message_payload(message: ChatMessage) -> dict[str, Any]:
+        if message.role is MessageRole.USER:
+            return {"role": "user", "content": message.content}
+        if message.role is MessageRole.ASSISTANT:
+            content_blocks: list[dict[str, Any]] = []
+            if message.content:
+                content_blocks.append({"type": "text", "text": message.content})
+            for call in message.tool_calls:
+                content_blocks.append(
+                    {
+                        "type": "tool_use",
+                        "id": call.id,
+                        "name": call.name,
+                        "input": dict(call.arguments),
+                    }
+                )
+            return {
+                "role": "assistant",
+                "content": content_blocks or [{"type": "text", "text": ""}],
+            }
+        if message.role is MessageRole.TOOL:
+            return {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": message.tool_call_id,
+                        "content": message.content,
+                    }
+                ],
+            }
+        raise ValueError(f"Unsupported message role for Anthropic: {message.role}")
 
 
 def coerce_provider_configs(config: Mapping[str, Any]) -> Sequence[dict[str, Any]]:
@@ -388,7 +376,7 @@ def coerce_provider_configs(config: Mapping[str, Any]) -> Sequence[dict[str, Any
 
 
 def normalize_provider_config(config: Mapping[str, Any]) -> dict[str, Any]:
-    provider = OpenAICompatibleProvider(config)
+    provider = AnthropicMessagesProvider(config)
     normalized: dict[str, Any] = {
         "provider_name": provider.name,
         "backend": provider.backend,
@@ -398,11 +386,12 @@ def normalize_provider_config(config: Mapping[str, Any]) -> dict[str, Any]:
         "health_timeout_seconds": provider.health_timeout_seconds,
         "temperature": provider.temperature,
         "max_tokens": provider.max_tokens,
+        "anthropic_version": provider.anthropic_version,
     }
     api_key_env = str(config.get("api_key_env", "")).strip()
     if api_key_env:
         normalized["api_key_env"] = api_key_env
     extra_headers = config.get("headers", {})
     if extra_headers:
-        normalized["headers"] = OpenAICompatibleProvider._coerce_headers(extra_headers)
+        normalized["headers"] = AnthropicMessagesProvider._coerce_headers(extra_headers)
     return normalized

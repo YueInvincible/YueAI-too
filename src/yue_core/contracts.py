@@ -272,6 +272,8 @@ class ModelProvider(Protocol):
         context: ModelContext,
     ) -> AsyncIterator[ModelEvent]: ...
 
+    async def health(self) -> Mapping[str, Any]: ...
+
 
 class ConversationStore(Protocol):
     async def create(

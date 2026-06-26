@@ -7,6 +7,12 @@
 - Console tích hợp là bề mặt điều khiển chính.
 - Hỗ trợ coding-agent workflow qua file/tools/build/test.
 
+## Lộ trình phát triển
+
+- Core chat engine -> backend/provider stack -> desktop UI -> chat stabilization -> 3D engine -> voice.
+- Chỉ chuyển phase khi phase trước đã verify và note rõ trạng thái.
+- Xem `app_development_roadmap.md` để lấy thứ tự chi tiết và các roadmap con.
+
 ## Quyết định đã chốt
 
 - Không quay lại:

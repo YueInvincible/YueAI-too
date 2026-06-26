@@ -1,12 +1,31 @@
 from __future__ import annotations
 
 import copy
+import json
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
 from .errors import ConfigurationError
+
+
+DEFAULT_CHAT_PROMPT_PROFILE = {
+    "personality": "Local-first assistant. Short, clear, and practical.",
+    "system_instruction": "",
+    "tool_instruction": "Only call tools when they materially improve the answer or are explicitly requested.",
+    "response_instruction": "Keep answers concise and preserve the user's language.",
+}
+
+DEFAULT_CODING_PROMPT_PROFILE = {
+    "personality": "Senior coding agent. Direct, technical, and execution-focused.",
+    "system_instruction": "You are responsible for implementing code changes safely and validating them with real checks.",
+    "tool_instruction": (
+        "Inspect relevant files before editing. Prefer targeted reads/searches first, then edit only what is needed. "
+        "Run verification commands when they materially prove the change. Avoid destructive actions unless explicitly requested."
+    ),
+    "response_instruction": "State assumptions, verification, and remaining risks clearly.",
+}
 
 
 @dataclass(slots=True)
@@ -43,18 +62,8 @@ class ConversationSettings:
     )
     prompt_profiles: dict[str, dict[str, str]] = field(
         default_factory=lambda: {
-            "default": {
-                "personality": "",
-                "system_instruction": "",
-                "tool_instruction": "",
-                "response_instruction": "",
-            },
-            "coding_agent": {
-                "personality": "",
-                "system_instruction": "",
-                "tool_instruction": "",
-                "response_instruction": "",
-            },
+            "default": dict(DEFAULT_CHAT_PROMPT_PROFILE),
+            "coding_agent": dict(DEFAULT_CODING_PROMPT_PROFILE),
         }
     )
     store_backend: str = "sqlite"
@@ -78,6 +87,7 @@ class Settings:
     plugins: PluginSettings = field(default_factory=PluginSettings)
     conversation: ConversationSettings = field(default_factory=ConversationSettings)
     desktop: DesktopSettings = field(default_factory=DesktopSettings)
+    config_path: Path | None = None
 
 
 DEFAULTS: dict[str, Any] = {
@@ -105,18 +115,8 @@ DEFAULTS: dict[str, Any] = {
             },
         },
         "prompt_profiles": {
-            "default": {
-                "personality": "",
-                "system_instruction": "",
-                "tool_instruction": "",
-                "response_instruction": "",
-            },
-            "coding_agent": {
-                "personality": "",
-                "system_instruction": "",
-                "tool_instruction": "",
-                "response_instruction": "",
-            },
+            "default": dict(DEFAULT_CHAT_PROMPT_PROFILE),
+            "coding_agent": dict(DEFAULT_CODING_PROMPT_PROFILE),
         },
         "store_backend": "sqlite",
         "sqlite_path": "data/conversations.db",
@@ -208,30 +208,159 @@ def _prompt_profiles(
         }
     profiles.setdefault(
         "default",
-        {
-            "personality": "",
-            "system_instruction": "",
-            "tool_instruction": "",
-            "response_instruction": "",
-        },
+        dict(DEFAULT_CHAT_PROMPT_PROFILE),
     )
     profiles.setdefault(
         "coding_agent",
-        {
-            "personality": "",
-            "system_instruction": "",
-            "tool_instruction": "",
-            "response_instruction": "",
-        },
+        dict(DEFAULT_CODING_PROMPT_PROFILE),
     )
     return profiles
+
+
+def _toml_key(key: str) -> str:
+    if key and all(char.isalnum() or char in {"_", "-"} for char in key):
+        return key
+    return json.dumps(key, ensure_ascii=False)
+
+
+def _toml_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    if isinstance(value, float):
+        return repr(value)
+    if isinstance(value, Path):
+        return json.dumps(str(value), ensure_ascii=False)
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    if value is None:
+        return '""'
+    if isinstance(value, Mapping):
+        return "{ " + ", ".join(
+            f"{_toml_key(str(key))} = {_toml_value(item)}"
+            for key, item in value.items()
+        ) + " }"
+    if isinstance(value, list):
+        return "[ " + ", ".join(_toml_value(item) for item in value) + " ]"
+    raise TypeError(f"Unsupported TOML value type: {type(value)!r}")
+
+
+def _render_table(
+    lines: list[str],
+    path: tuple[str, ...],
+    mapping: Mapping[str, Any],
+    *,
+    force_header: bool = False,
+) -> None:
+    scalar_items: list[tuple[str, Any]] = []
+    nested_items: list[tuple[str, Mapping[str, Any]]] = []
+    for key, value in mapping.items():
+        if isinstance(value, Mapping):
+            nested_items.append((str(key), value))
+        else:
+            scalar_items.append((str(key), value))
+
+    should_emit_header = force_header or bool(scalar_items)
+    if should_emit_header:
+        if path:
+            lines.append(f"[{'.'.join(_toml_key(part) for part in path)}]")
+        for key, value in scalar_items:
+            lines.append(f"{_toml_key(key)} = {_toml_value(value)}")
+        if nested_items:
+            lines.append("")
+
+    for index, (key, value) in enumerate(nested_items):
+        if lines and lines[-1] != "":
+            lines.append("")
+        _render_table(lines, path + (key,), value, force_header=False)
+
+
+def dump_settings(settings: Settings) -> str:
+    lines: list[str] = []
+    _render_table(
+        lines,
+        ("core",),
+        {
+            "data_dir": settings.core.data_dir,
+            "log_level": settings.core.log_level,
+            "tool_timeout_seconds": settings.core.tool_timeout_seconds,
+        },
+        force_header=True,
+    )
+    lines.append("")
+    _render_table(
+        lines,
+        ("permissions",),
+        {
+            "profile": settings.permissions.profile,
+            "interactive_approval": settings.permissions.interactive_approval,
+        },
+        force_header=True,
+    )
+    lines.append("")
+    _render_table(
+        lines,
+        ("plugins",),
+        {
+            "roots": settings.plugins.roots,
+            "enabled": settings.plugins.enabled,
+            "options": settings.plugins.options,
+        },
+        force_header=True,
+    )
+    lines.append("")
+    _render_table(
+        lines,
+        ("conversation",),
+        {
+            "default_provider": settings.conversation.default_provider,
+            "store_backend": settings.conversation.store_backend,
+            "sqlite_path": settings.conversation.sqlite_path,
+            "max_tool_iterations": settings.conversation.max_tool_iterations,
+            "max_tool_output_chars": settings.conversation.max_tool_output_chars,
+            "routes": settings.conversation.routes,
+            "prompt_profiles": settings.conversation.prompt_profiles,
+        },
+        force_header=True,
+    )
+    lines.append("")
+    _render_table(
+        lines,
+        ("desktop",),
+        {
+            "hotkey": settings.desktop.hotkey,
+            "window_anchor": settings.desktop.window_anchor,
+            "model_path": settings.desktop.model_path,
+            "click_opens_console": settings.desktop.click_opens_console,
+        },
+        force_header=True,
+    )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def save_settings(
+    settings: Settings,
+    path: Path | None = None,
+    *,
+    base_dir: Path | None = None,
+) -> Path:
+    base = (base_dir or Path.cwd()).resolve()
+    target = path or settings.config_path or (base / "config.local.toml")
+    if not target.is_absolute():
+        target = (base / target).resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(dump_settings(settings), encoding="utf-8")
+    return target
 
 
 def load_settings(path: Path | None = None, *, base_dir: Path | None = None) -> Settings:
     base = (base_dir or Path.cwd()).resolve()
     raw = copy.deepcopy(DEFAULTS)
+    config_path: Path | None = None
     if path is not None:
         config_path = path if path.is_absolute() else base / path
+        config_path = config_path.resolve()
         if not config_path.exists():
             raise ConfigurationError(f"Configuration file does not exist: {config_path}")
         with config_path.open("rb") as handle:
@@ -335,6 +464,7 @@ def load_settings(path: Path | None = None, *, base_dir: Path | None = None) -> 
                 ),
                 click_opens_console=bool(raw["desktop"]["click_opens_console"]),
             ),
+            config_path=config_path,
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise ConfigurationError(f"Invalid configuration: {exc}") from exc

@@ -104,6 +104,191 @@ body {
   font-size: 0.9rem;
 }
 
+.provider-panel {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(112, 175, 230, 0.16);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.settings-panel {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(112, 175, 230, 0.16);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.settings-form {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settings-field {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-field span {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.settings-textarea {
+  min-height: 92px;
+  resize: vertical;
+  border-radius: 14px;
+  border: 1px solid var(--edge);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  padding: 12px 14px;
+  font: inherit;
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.preset-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.preset-button,
+.inline-button {
+  padding: 8px 12px;
+  font-size: 0.82rem;
+}
+
+.headers-list {
+  display: grid;
+  gap: 8px;
+}
+
+.header-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.header-row .message-input {
+  width: 100%;
+}
+
+.provider-panel-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.provider-status-list {
+  display: grid;
+  gap: 8px;
+}
+
+.approval-list {
+  display: grid;
+  gap: 10px;
+}
+
+.approval-row {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(112, 175, 230, 0.14);
+}
+
+.approval-title {
+  font-weight: 600;
+}
+
+.approval-meta,
+.approval-reason {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.approval-arguments {
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(112, 175, 230, 0.12);
+  color: var(--text);
+  font: 0.8rem/1.4 "Cascadia Code", "Consolas", monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.approval-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.provider-status-row {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.provider-status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.provider-status-name {
+  font-weight: 600;
+}
+
+.provider-status-badge {
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 0.75rem;
+  border: 1px solid var(--edge);
+  color: var(--muted);
+}
+
+.provider-status-badge.ok {
+  color: #a7f3c2;
+  border-color: rgba(110, 231, 183, 0.4);
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.provider-status-badge.error {
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.4);
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.provider-status-meta {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
 .console-panel {
   padding: 16px;
 }
@@ -166,6 +351,16 @@ body {
   background: rgba(255, 255, 255, 0.04);
   color: var(--text);
   padding: 12px 14px;
+}
+
+@media (max-width: 640px) {
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .header-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 @keyframes spin {

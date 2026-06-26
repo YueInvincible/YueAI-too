@@ -53,6 +53,18 @@ Tool output sent back to a model is bounded by
 `conversation.max_tool_output_chars`. The iteration count is bounded by
 `conversation.max_tool_iterations`.
 
+Tool result payload currently sent back into the loop includes:
+
+- `request_id`
+- `tool_name`
+- `ok`
+- `status`
+- `output`
+- `error`
+
+This payload is serialized into the tool message content so providers can
+reason over success/failure without inferring it from raw text alone.
+
 ## JSONL methods
 
 Requests:
@@ -77,7 +89,11 @@ interrupt an active send request.
 
 ## Current persistence
 
-The current store is in memory. The contract intentionally hides storage
-details so SQLite can replace it without changing providers, UI, or
-orchestration.
+The contract intentionally hides storage details so providers and UI do not
+depend on the backend store implementation.
+
+Current implementations:
+
+- SQLite is the default durable store.
+- In-memory storage remains available for tests and isolated flows.
 

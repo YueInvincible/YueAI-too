@@ -18,6 +18,7 @@
           <div id="presence-line" class="avatar-line">idle / neutral</div>
           <div id="window-line" class="avatar-line">anchor: bottom-right</div>
           <div id="bridge-line" class="avatar-line">bridge: mock | core: idle</div>
+          <div id="provider-line" class="avatar-line">providers: unavailable</div>
         </div>
       </section>
       <section id="console-panel" class="console-panel hidden">
@@ -28,6 +29,205 @@
           </div>
           <button id="close-console-button" class="ghost-button" type="button">Close</button>
         </header>
+        <section class="provider-panel">
+          <div class="provider-panel-title">Provider status</div>
+          <div id="provider-status-list" class="provider-status-list"></div>
+        </section>
+        <section class="provider-panel">
+          <div class="provider-panel-title">Pending approvals</div>
+          <div id="approval-status-line" class="console-subtitle">No pending approvals</div>
+          <div id="approval-list" class="approval-list"></div>
+        </section>
+        <section class="settings-panel">
+          <div class="provider-panel-title">Routing and prompts</div>
+          <div id="settings-status-line" class="console-subtitle">Runtime only</div>
+          <form id="settings-form" class="settings-form">
+            <label class="settings-field">
+              <span>Default provider</span>
+              <input id="default-provider-input" class="message-input" name="default_provider" list="provider-options">
+            </label>
+            <div class="settings-grid">
+              <label class="settings-field">
+                <span>Chat provider</span>
+                <input id="chat-provider-input" class="message-input" list="provider-options">
+              </label>
+              <label class="settings-field">
+                <span>Chat profile</span>
+                <input id="chat-profile-input" class="message-input">
+              </label>
+              <label class="settings-field">
+                <span>Coding provider</span>
+                <input id="coding-provider-input" class="message-input" list="provider-options">
+              </label>
+              <label class="settings-field">
+                <span>Coding profile</span>
+                <input id="coding-profile-input" class="message-input">
+              </label>
+            </div>
+            <div class="settings-grid">
+              <label class="settings-field">
+                <span>Default personality</span>
+                <textarea id="default-personality-input" class="settings-textarea"></textarea>
+              </label>
+              <label class="settings-field">
+                <span>Default system</span>
+                <textarea id="default-system-input" class="settings-textarea"></textarea>
+              </label>
+              <label class="settings-field">
+                <span>Coding personality</span>
+                <textarea id="coding-personality-input" class="settings-textarea"></textarea>
+              </label>
+              <label class="settings-field">
+                <span>Coding system</span>
+                <textarea id="coding-system-input" class="settings-textarea"></textarea>
+              </label>
+              <label class="settings-field">
+                <span>Coding tool instruction</span>
+                <textarea id="coding-tool-input" class="settings-textarea"></textarea>
+              </label>
+              <label class="settings-field">
+                <span>Coding response instruction</span>
+                <textarea id="coding-response-input" class="settings-textarea"></textarea>
+              </label>
+            </div>
+            <div class="settings-actions">
+              <button id="settings-apply-button" class="send-button" type="submit">Apply runtime settings</button>
+              <button id="settings-save-button" class="ghost-button" type="button">Save to config</button>
+            </div>
+          </form>
+          <datalist id="provider-options"></datalist>
+        </section>
+        <section class="settings-panel">
+          <div class="provider-panel-title">OpenAI-compatible provider config</div>
+          <div id="provider-config-status-line" class="console-subtitle">Provider config runtime only</div>
+          <form id="provider-config-form" class="settings-form">
+            <label class="settings-field">
+              <span>Provider</span>
+              <select id="provider-config-select" class="message-input"></select>
+            </label>
+            <div class="settings-field">
+              <span>Quick presets</span>
+              <div class="preset-list">
+                <button class="ghost-button preset-button" type="button" data-provider-preset="openai">OpenAI</button>
+                <button class="ghost-button preset-button" type="button" data-provider-preset="google">Google AI</button>
+                <button class="ghost-button preset-button" type="button" data-provider-preset="openrouter">OpenRouter</button>
+                <button class="ghost-button preset-button" type="button" data-provider-preset="ollama">Ollama</button>
+                <button class="ghost-button preset-button" type="button" data-provider-preset="lmstudio">LM Studio</button>
+                <button class="ghost-button preset-button" type="button" data-provider-preset="custom">Custom</button>
+              </div>
+            </div>
+            <div class="settings-grid">
+              <label class="settings-field">
+                <span>Backend</span>
+                <input id="provider-backend-input" class="message-input">
+              </label>
+              <label class="settings-field">
+                <span>Base URL</span>
+                <input id="provider-base-url-input" class="message-input">
+              </label>
+              <label class="settings-field">
+                <span>Model</span>
+                <input id="provider-model-input" class="message-input">
+              </label>
+              <label class="settings-field">
+                <span>API key env</span>
+                <input id="provider-api-key-env-input" class="message-input">
+              </label>
+              <label class="settings-field">
+                <span>Timeout seconds</span>
+                <input id="provider-timeout-input" class="message-input" type="number" step="0.1">
+              </label>
+              <label class="settings-field">
+                <span>Health timeout</span>
+                <input id="provider-health-timeout-input" class="message-input" type="number" step="0.1">
+              </label>
+              <label class="settings-field">
+                <span>Temperature</span>
+                <input id="provider-temperature-input" class="message-input" type="number" step="0.1">
+              </label>
+              <label class="settings-field">
+                <span>Max tokens</span>
+                <input id="provider-max-tokens-input" class="message-input" type="number" step="1">
+              </label>
+            </div>
+            <div class="settings-field">
+              <span>Custom headers</span>
+              <div id="provider-headers-list" class="headers-list"></div>
+              <button id="provider-header-add-button" class="ghost-button inline-button" type="button">Add header</button>
+            </div>
+            <div class="settings-actions">
+              <button class="send-button" type="submit">Apply provider config</button>
+              <button id="provider-config-save-button" class="ghost-button" type="button">Save provider config</button>
+              <button id="provider-config-add-button" class="ghost-button" type="button">Add provider</button>
+              <button id="provider-config-remove-button" class="ghost-button" type="button">Remove provider</button>
+            </div>
+          </form>
+        </section>
+        <section class="settings-panel">
+          <div class="provider-panel-title">Anthropic provider config</div>
+          <div id="anthropic-config-status-line" class="console-subtitle">Anthropic config runtime only</div>
+          <form id="anthropic-config-form" class="settings-form">
+            <label class="settings-field">
+              <span>Provider</span>
+              <select id="anthropic-config-select" class="message-input"></select>
+            </label>
+            <div class="settings-field">
+              <span>Quick presets</span>
+              <div class="preset-list">
+                <button class="ghost-button preset-button" type="button" data-anthropic-preset="claude">Claude API</button>
+              </div>
+            </div>
+            <div class="settings-grid">
+              <label class="settings-field">
+                <span>Backend</span>
+                <input id="anthropic-backend-input" class="message-input">
+              </label>
+              <label class="settings-field">
+                <span>Base URL</span>
+                <input id="anthropic-base-url-input" class="message-input">
+              </label>
+              <label class="settings-field">
+                <span>Model</span>
+                <input id="anthropic-model-input" class="message-input">
+              </label>
+              <label class="settings-field">
+                <span>API key env</span>
+                <input id="anthropic-api-key-env-input" class="message-input">
+              </label>
+              <label class="settings-field">
+                <span>Anthropic version</span>
+                <input id="anthropic-version-input" class="message-input">
+              </label>
+              <label class="settings-field">
+                <span>Timeout seconds</span>
+                <input id="anthropic-timeout-input" class="message-input" type="number" step="0.1">
+              </label>
+              <label class="settings-field">
+                <span>Health timeout</span>
+                <input id="anthropic-health-timeout-input" class="message-input" type="number" step="0.1">
+              </label>
+              <label class="settings-field">
+                <span>Temperature</span>
+                <input id="anthropic-temperature-input" class="message-input" type="number" step="0.1">
+              </label>
+              <label class="settings-field">
+                <span>Max tokens</span>
+                <input id="anthropic-max-tokens-input" class="message-input" type="number" step="1">
+              </label>
+            </div>
+            <div class="settings-field">
+              <span>Custom headers</span>
+              <div id="anthropic-headers-list" class="headers-list"></div>
+              <button id="anthropic-header-add-button" class="ghost-button inline-button" type="button">Add header</button>
+            </div>
+            <div class="settings-actions">
+              <button class="send-button" type="submit">Apply Anthropic config</button>
+              <button id="anthropic-config-save-button" class="ghost-button" type="button">Save Anthropic config</button>
+              <button id="anthropic-config-add-button" class="ghost-button" type="button">Add provider</button>
+              <button id="anthropic-config-remove-button" class="ghost-button" type="button">Remove provider</button>
+            </div>
+          </form>
+        </section>
         <div id="message-log" class="message-log"></div>
         <form id="message-form" class="message-form">
           <input id="message-input" class="message-input" name="message" autocomplete="off" placeholder="Send a local message">

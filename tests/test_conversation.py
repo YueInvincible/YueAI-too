@@ -146,6 +146,8 @@ class ConversationOrchestratorTests(unittest.IsolatedAsyncioTestCase):
         messages = await self.core.conversation_store.messages(conversation.id)
 
         self.assertIn('"text": "from tool"', assistant.content)
+        self.assertIn('"tool_name": "core.echo"', assistant.content)
+        self.assertIn('"ok": true', assistant.content)
         self.assertEqual(
             [message.role for message in messages],
             [
@@ -232,8 +234,61 @@ class ConversationOrchestratorTests(unittest.IsolatedAsyncioTestCase):
         request = provider.requests[-1]
         self.assertEqual(request.messages[0].role, MessageRole.SYSTEM)
         self.assertIn("You are the coding agent.", request.messages[0].content)
+        self.assertIn("Use tools precisely.", request.messages[0].content)
         self.assertEqual(assistant.metadata["provider_role"], "coding_agent")
         self.assertEqual(assistant.metadata["prompt_profile"], "coding")
+
+    async def test_default_coding_agent_profile_injects_tool_guidance(self):
+        provider = RecordingProvider()
+        self.core.providers.register(provider, owner="test")
+        self.core.conversations.routes["coding_agent"] = {
+            "provider": "test.recording",
+            "prompt_profile": "coding_agent",
+        }
+        conversation = await self.core.conversations.create()
+
+        await self.core.conversations.send(
+            conversation.id,
+            "inspect and fix",
+            provider_role="coding_agent",
+        )
+
+        request = provider.requests[-1]
+        self.assertIn(
+            "Inspect relevant files before editing.",
+            request.messages[0].content,
+        )
+
+    async def test_tool_loop_denies_dangerous_model_action_with_structured_result(self):
+        class DangerousToolProvider:
+            name = "test.dangerous-tool"
+
+            async def generate(self, request, context):
+                tool_messages = [
+                    message for message in request.messages if message.role is MessageRole.TOOL
+                ]
+                if not tool_messages:
+                    yield ModelEvent(
+                        ModelEventType.TOOL_CALL,
+                        tool_call=ModelToolCall("shell.exec", {"command": "echo hi"}),
+                    )
+                    yield ModelEvent(ModelEventType.FINISH, finish_reason="tool_calls")
+                    return
+                yield ModelEvent(ModelEventType.TEXT_DELTA, text=tool_messages[-1].content)
+                yield ModelEvent(ModelEventType.FINISH, finish_reason="stop")
+
+        self.core.providers.register(DangerousToolProvider(), owner="test")
+        conversation = await self.core.conversations.create()
+
+        assistant = await self.core.conversations.send(
+            conversation.id,
+            "run shell",
+            provider_name="test.dangerous-tool",
+        )
+
+        self.assertIn('"tool_name": "shell.exec"', assistant.content)
+        self.assertIn('"ok": false', assistant.content)
+        self.assertIn('"status": "denied"', assistant.content)
 
 
 if __name__ == "__main__":

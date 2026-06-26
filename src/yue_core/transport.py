@@ -35,6 +35,7 @@ class JsonLineServer:
             unsubscribes = [
                 self.core.events.subscribe("conversation.*", forward_event),
                 self.core.events.subscribe("desktop.*", forward_event),
+                self.core.events.subscribe("approval.*", forward_event),
             ]
             try:
                 while True:
@@ -88,8 +89,58 @@ class JsonLineServer:
                 payload = result.to_dict()
             elif method == "tools.cancel":
                 payload = {"cancelled": self.core.executor.cancel(params["request_id"])}
+            elif method == "approval.request":
+                result = await self.core.invoke(
+                    "approval.request",
+                    {
+                        "action_description": params["action_description"],
+                        "risk_level": params["risk_level"],
+                    },
+                    actor=params.get("actor", "ui"),
+                    session_id=params.get("session_id"),
+                )
+                payload = result.to_dict()
+            elif method == "approval.pending.list":
+                approvals = self.core.services.get("core.approvals")
+                if approvals is None or not hasattr(approvals, "list_pending"):
+                    raise RuntimeError("approval bridge is not available")
+                payload = await approvals.list_pending()
+            elif method == "approval.respond":
+                approvals = self.core.services.get("core.approvals")
+                if approvals is None or not hasattr(approvals, "respond"):
+                    raise RuntimeError("approval bridge is not available")
+                payload = await approvals.respond(
+                    params["approval_id"],
+                    bool(params["approved"]),
+                )
             elif method == "providers.list":
                 payload = self.core.providers.names()
+            elif method == "providers.health":
+                payload = await self.core.providers.health()
+            elif method == "settings.conversation.get":
+                payload = self.core.conversation_settings_snapshot()
+            elif method == "settings.conversation.update":
+                persist = bool(params.pop("persist", False))
+                payload = await self.core.update_conversation_settings(
+                    params,
+                    persist=persist,
+                )
+            elif method == "settings.providers.openai_compat.get":
+                payload = self.core.openai_compatible_settings_snapshot()
+            elif method == "settings.providers.openai_compat.update":
+                persist = bool(params.pop("persist", False))
+                payload = await self.core.update_openai_compatible_settings(
+                    params,
+                    persist=persist,
+                )
+            elif method == "settings.providers.anthropic_messages.get":
+                payload = self.core.anthropic_messages_settings_snapshot()
+            elif method == "settings.providers.anthropic_messages.update":
+                persist = bool(params.pop("persist", False))
+                payload = await self.core.update_anthropic_messages_settings(
+                    params,
+                    persist=persist,
+                )
             elif method == "conversations.create":
                 conversation = await self.core.conversations.create(
                     title=params.get("title"),

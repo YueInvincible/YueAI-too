@@ -21,6 +21,75 @@ function defaultState() {
 export function createMockTransport() {
   const state = defaultState();
   let conversationCounter = 0;
+  let conversationSettings = {
+    default_provider: "fake.echo",
+    routes: {
+      chat: { provider: "fake.echo", prompt_profile: "default" },
+      coding_agent: { provider: "fake.echo", prompt_profile: "coding_agent" },
+    },
+    prompt_profiles: {
+      default: {
+        personality: "Local-first assistant.",
+        system_instruction: "",
+        tool_instruction: "",
+        response_instruction: "",
+      },
+      coding_agent: {
+        personality: "Senior coding agent.",
+        system_instruction: "",
+        tool_instruction: "",
+        response_instruction: "",
+      },
+    },
+  };
+  let openaiCompatibleSettings = {
+    providers: [
+      {
+        provider_name: "ollama.chat",
+        backend: "ollama",
+        base_url: "http://127.0.0.1:11434/v1",
+        model: "qwen2.5:7b-instruct",
+        api_key_env: "",
+        timeout_seconds: 120,
+        health_timeout_seconds: 5,
+        temperature: 0.6,
+        max_tokens: 1024,
+        headers: {},
+      },
+    ],
+  };
+  let anthropicMessagesSettings = {
+    providers: [
+      {
+        provider_name: "claude.coder",
+        backend: "anthropic",
+        base_url: "https://api.anthropic.com",
+        model: "claude-sonnet-4-20250514",
+        api_key_env: "ANTHROPIC_API_KEY",
+        timeout_seconds: 120,
+        health_timeout_seconds: 5,
+        temperature: 0.2,
+        max_tokens: 2048,
+        anthropic_version: "2023-06-01",
+        headers: {},
+      },
+    ],
+  };
+  let pendingApprovals = [
+    {
+      approval_id: "mock-approval-1",
+      request_id: "mock-request-1",
+      tool_name: "shell.run",
+      actor: "desktop-preview",
+      session_id: "desktop-preview",
+      reason: "Command requires explicit approval",
+      risk_level: "high",
+      arguments: {
+        command: "git push origin feature/desktop-bridge",
+      },
+      created_at: now(),
+    },
+  ];
 
   return {
     async request({ method, params }) {
@@ -46,8 +115,86 @@ export function createMockTransport() {
           reduceDesktopCommand(state, params.command, params.value);
           state.updated_at = now();
           return { state: { ...state } };
+        case "approval.request": {
+          const approval = {
+            approval_id: `mock-approval-${pendingApprovals.length + 1}`,
+            request_id: `mock-request-${pendingApprovals.length + 1}`,
+            tool_name: "approval.request",
+            actor: params.actor || "desktop-ui",
+            session_id: params.session_id || null,
+            reason: params.action_description,
+            risk_level: params.risk_level,
+            arguments: {
+              action_description: params.action_description,
+            },
+            created_at: now(),
+          };
+          pendingApprovals = [...pendingApprovals, approval];
+          return { approved: false, pending: approval };
+        }
+        case "approval.pending.list":
+          return JSON.parse(JSON.stringify(pendingApprovals));
+        case "approval.respond": {
+          const match = pendingApprovals.find((item) => item.approval_id === params.approval_id);
+          if (!match) {
+            throw new Error(`Unknown approval request: ${params.approval_id}`);
+          }
+          pendingApprovals = pendingApprovals.filter(
+            (item) => item.approval_id !== params.approval_id,
+          );
+          return {
+            ...JSON.parse(JSON.stringify(match)),
+            approved: Boolean(params.approved),
+          };
+        }
         case "providers.list":
-          return ["fake.echo"];
+          return [
+            "fake.echo",
+            ...openaiCompatibleSettings.providers.map((item) => item.provider_name),
+            ...anthropicMessagesSettings.providers.map((item) => item.provider_name),
+          ];
+        case "providers.health":
+          return [
+            {
+              provider: "fake.echo",
+              ok: true,
+              reachable: true,
+              backend: "fake",
+            },
+          ];
+        case "settings.conversation.get":
+          return JSON.parse(JSON.stringify(conversationSettings));
+        case "settings.conversation.update":
+          conversationSettings = JSON.parse(
+            JSON.stringify(
+              Object.fromEntries(
+                Object.entries(params).filter(([key]) => key !== "persist"),
+              ),
+            ),
+          );
+          return JSON.parse(JSON.stringify(conversationSettings));
+        case "settings.providers.openai_compat.get":
+          return JSON.parse(JSON.stringify(openaiCompatibleSettings));
+        case "settings.providers.openai_compat.update":
+          openaiCompatibleSettings = JSON.parse(
+            JSON.stringify(
+              Object.fromEntries(
+                Object.entries(params).filter(([key]) => key !== "persist"),
+              ),
+            ),
+          );
+          return JSON.parse(JSON.stringify(openaiCompatibleSettings));
+        case "settings.providers.anthropic_messages.get":
+          return JSON.parse(JSON.stringify(anthropicMessagesSettings));
+        case "settings.providers.anthropic_messages.update":
+          anthropicMessagesSettings = JSON.parse(
+            JSON.stringify(
+              Object.fromEntries(
+                Object.entries(params).filter(([key]) => key !== "persist"),
+              ),
+            ),
+          );
+          return JSON.parse(JSON.stringify(anthropicMessagesSettings));
         case "conversations.create":
           conversationCounter += 1;
           return { id: `mock-conversation-${conversationCounter}` };

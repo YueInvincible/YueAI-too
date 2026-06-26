@@ -71,11 +71,19 @@ Tools declare one capability and one risk level. The permission engine applies:
 
 1. explicit rules;
 2. active permission profile;
-3. risk threshold;
+3. actor-aware default rules (`model` vs `user` / `ui`);
 4. interactive approval where configured;
 5. deny by default when approval is unavailable.
 
 Plugins cannot grant themselves permissions.
+
+Current default direction:
+
+- `observe`: read-only tooling.
+- `assist`: read/edit/git inspection workflow is allowed.
+- `assist`: dangerous host actions such as shell/process kill/package install
+  are blocked for `actor=model` and require approval for `actor=user` / `ui`.
+- `admin`: all registered capabilities are allowed.
 
 ## Events
 

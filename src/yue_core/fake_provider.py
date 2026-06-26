@@ -39,3 +39,11 @@ class EchoModelProvider:
             )
         yield ModelEvent(ModelEventType.FINISH, finish_reason="stop")
 
+    async def health(self):
+        return {
+            "provider": self.name,
+            "ok": True,
+            "backend": "fake",
+            "reachable": True,
+        }
+

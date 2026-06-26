@@ -1,11 +1,18 @@
 import unittest
 
 from tests.support import workspace_temp_dir
-from yue_core.config import load_settings
+from yue_core.config import Settings, load_settings, save_settings
 from yue_core.errors import ConfigurationError
 
 
 class ConfigTests(unittest.TestCase):
+    def test_default_coding_prompt_profile_includes_tool_guidance(self):
+        settings = Settings()
+        self.assertIn(
+            "Inspect relevant files before editing",
+            settings.conversation.prompt_profiles["coding_agent"]["tool_instruction"],
+        )
+
     def test_conversation_settings_load(self):
         with workspace_temp_dir() as temp:
             path = temp / "config.toml"
@@ -72,6 +79,33 @@ prompt_profile = "missing"
             )
             with self.assertRaises(ConfigurationError):
                 load_settings(path, base_dir=temp)
+
+    def test_save_settings_round_trip_preserves_conversation_updates(self):
+        with workspace_temp_dir() as temp:
+            path = temp / "config.local.toml"
+            settings = Settings()
+            settings.config_path = path
+            settings.conversation.default_provider = "fake.echo"
+            settings.conversation.routes["chat"]["provider"] = "fake.echo"
+            settings.conversation.routes["coding_agent"]["provider"] = "fake.echo"
+            settings.conversation.prompt_profiles["default"]["personality"] = "Concise"
+            settings.conversation.prompt_profiles["coding_agent"][
+                "system_instruction"
+            ] = "Write code"
+            save_settings(settings, base_dir=temp)
+            loaded = load_settings(path, base_dir=temp)
+
+        self.assertEqual(loaded.conversation.default_provider, "fake.echo")
+        self.assertEqual(
+            loaded.conversation.prompt_profiles["default"]["personality"],
+            "Concise",
+        )
+        self.assertEqual(
+            loaded.conversation.prompt_profiles["coding_agent"][
+                "system_instruction"
+            ],
+            "Write code",
+        )
 
 
 if __name__ == "__main__":

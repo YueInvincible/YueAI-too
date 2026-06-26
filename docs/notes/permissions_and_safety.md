@@ -23,14 +23,38 @@ Tach cac yeu cau permissions/safety ra khoi handoff tong de agent sau khong bo s
 
 ## Trang thai hien tai
 
-- Chua thay implementation day du trong repo cho permission pipeline tong the.
-- Co the da co tung manh logic roi rac, nhung chua co note xac nhan thong nhat.
+- Da co permission engine co ban trong core cho tool execution.
+- Da co profile:
+  - `observe`: cho read-only tool nhu `file.read`, `file.list`, `file.search`, `process.list`, `git.status`, `git.diff`.
+  - `assist`: auto-allow read/edit workflow (`file.write`, `file.edit`, `file.move`) va bat approval cho action nguy hiem nhu `file.delete`, `shell.exec`, `process.kill`, `package.install`.
+  - `admin`: allow toan bo capability da dang ky.
+- Lop tool alias moi cung da di qua permission engine cung cach:
+  - read-only: `workspace.list`, `workspace.read`, `workspace.search`, `workspace.grep`, `todo.update`, `approval.request`;
+  - read/edit workflow: `workspace.write`, `workspace.edit`, `workspace.ops`;
+  - action nguy hiem: `shell.run`, `shell.session`.
+- Da co luong approval explicit rieng:
+  - tool `approval.request`;
+  - transport method `approval.request`;
+  - runtime goi thang `ApprovalProvider` thay vi bat agent suy doan approval qua mot tool nguy hiem gia.
+- Luong approval va shell session da co them event/audit trail ro hon:
+  - `approval.requested` / `approval.resolved`;
+  - `shell.session.started` / `shell.session.read` / `shell.session.listed` / `shell.session.stopped`;
+  - audit categories tuong ung cho approval va shell session actions.
+- Da co phan biet `actor` co ban:
+  - `model` chi duoc phep workflow an toan;
+  - `user/ui` moi di vao nhom action co the xin approval.
+- Audit log da ghi:
+  - `tool.request`
+  - `permission.decision`
+  - `tool.result`
+- Boundary workspace da duoc enforce cho file tools.
+- Tool co side effect ra host/process/network da co `dry_run` path de test va plan an toan hon trong moi truong bi han che.
 
 ## Viec agent sau nen lam
 
-1. Audit cac action co side effect trong desktop/core.
-2. Gom thanh mot permission model ro rang.
-3. Ghi file nao dang canh bao, file nao da enforce, file nao moi la y tuong.
+1. Audit tiep cac action co side effect trong desktop/core de xem con duong nao chua di qua permission engine.
+2. Can nhac bo sung policy chi tiet hon theo actor/session thay vi chi theo profile va tool name.
+3. Tach ro phan nao la approval UI/runtime, phan nao la enforcement core.
 
 ## Phu thuoc
 

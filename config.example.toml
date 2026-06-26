@@ -9,13 +9,20 @@ interactive_approval = false
 
 [plugins]
 roots = ["plugins"]
-enabled = ["openai.compat", "llama.cpp"]
+enabled = ["openai.compat", "anthropic.messages", "llama.cpp"]
 
 [plugins.options."openai.compat"]
 providers = [
   { provider_name = "openai.coder", backend = "openai", model = "gpt-4.1-mini", api_key_env = "OPENAI_API_KEY", timeout_seconds = 120.0, temperature = 0.2, max_tokens = 2048 },
+  { provider_name = "google.chat", backend = "google", model = "gemini-3.5-flash", api_key_env = "GEMINI_API_KEY", timeout_seconds = 120.0, temperature = 0.4, max_tokens = 1536 },
+  { provider_name = "openrouter.claude", backend = "openrouter", model = "anthropic/claude-3.5-sonnet", api_key_env = "OPENROUTER_API_KEY", timeout_seconds = 120.0, temperature = 0.2, max_tokens = 2048 },
   { provider_name = "ollama.chat", backend = "ollama", base_url = "http://127.0.0.1:11434/v1", model = "qwen2.5:7b-instruct", timeout_seconds = 120.0, temperature = 0.6, max_tokens = 1024 },
   { provider_name = "lmstudio.chat", backend = "lmstudio", base_url = "http://127.0.0.1:1234/v1", model = "openai/gpt-oss-20b", timeout_seconds = 120.0, temperature = 0.4, max_tokens = 1536 },
+]
+
+[plugins.options."anthropic.messages"]
+providers = [
+  { provider_name = "claude.coder", backend = "anthropic", model = "claude-sonnet-4-20250514", api_key_env = "ANTHROPIC_API_KEY", timeout_seconds = 120.0, temperature = 0.2, max_tokens = 2048 },
 ]
 
 [plugins.options."llama.cpp"]
@@ -38,7 +45,7 @@ provider = "ollama.chat"
 prompt_profile = "default"
 
 [conversation.routes.coding_agent]
-provider = "openai.coder"
+provider = "claude.coder"
 prompt_profile = "coding_agent"
 
 [conversation.prompt_profiles.default]
