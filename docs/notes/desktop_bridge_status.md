@@ -33,6 +33,7 @@
 - `python -m yue_core serve` forward duoc ca:
   - `conversation.*`
   - `desktop.*`
+  - `approval.*`
 - Rust bridge co the:
   - spawn `python -m yue_core serve`
   - gui request/nhan response that
@@ -43,6 +44,10 @@
   - poll `bridge_drain_events`
   - apply `desktop.state.changed`
   - render `conversation.delta` trong native mode
+- Frontend shell da co pending approval panel trong console:
+  - doc `approval.pending.list`
+  - react voi event `approval.pending` / `approval.responded`
+  - gui `approval.respond` de approve/deny tu UI
 - Provider health va runtime settings editor da render trong shell.
 - Provider config editor da co cho:
   - `openai.compat`

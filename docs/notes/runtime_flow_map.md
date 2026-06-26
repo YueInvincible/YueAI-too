@@ -120,6 +120,12 @@ Desktop shell UI
   - command-style output (`shell.exec`, `git.*`, `package.install`, `process.kill`) hien duoc runtime scrub ANSI/mau, gom blank line lien tiep, va head-tail truncate truoc khi tra ve agent.
   - `file.read` hien tra them metadata `returned_lines` + `truncated` khi doan doc qua dai.
 
+- `src/yue_core/approval_bridge.py`
+  - source of truth cho pending approval queue ma desktop/runtime co the list va resolve.
+
+- `src/yue_core/shell_sessions.py`
+  - source of truth cho long-lived shell session manager dung boi `shell.session`.
+
 ## Conversation/provider routing flow
 
 ### Config layer
@@ -324,16 +330,22 @@ Frontend methods trong `protocol.js`:
 - `desktopAttach`
 - `desktopDetach`
 - `desktopCommand`
+- `requestApproval`
+- `listPendingApprovals`
+- `respondApproval`
 - `createConversation`
 - `sendConversationMessage`
 - `listProviders`
 - `providersHealth`
 - `getConversationSettings`
 - `updateConversationSettings`
+- `saveConversationSettings`
 - `getOpenAICompatibleSettings`
 - `updateOpenAICompatibleSettings`
+- `saveOpenAICompatibleSettings`
 - `getAnthropicMessagesSettings`
 - `updateAnthropicMessagesSettings`
+- `saveAnthropicMessagesSettings`
 
 Core JSONL methods cung da expose tool surface:
 
@@ -361,6 +373,8 @@ Topics desktop shell dang de y:
 - `conversation.run.completed`
 - `conversation.run.failed`
 - `conversation.run.cancelled`
+- `approval.pending`
+- `approval.responded`
 
 ## Desktop shell bootstrap flow
 

@@ -25,7 +25,8 @@ Validated now:
   - `bridge_runtime_info`;
   - `bridge_drain_events`;
   - real `desktop.state.changed` application;
-  - streamed `conversation.delta` rendering in native mode.
+  - streamed `conversation.delta` rendering in native mode;
+  - pending approval rendering and `approval.respond` actions in native mode.
 - Tauri app-level IPC lifecycle proof via `tauri::test`:
   - invokes `bridge_runtime_info`;
   - invokes `bridge_request` for desktop and conversation flows;
@@ -84,6 +85,7 @@ debug build uses `build.devUrl`.
 
 The Rust side now compiles and has runtime proof for both desktop and
 conversation JSONL flows against a real child process, plus an app-level Tauri
-IPC proof through `tauri::test`. The remaining gap is the real launched window
-runtime beyond the current debug-window validation, not the bridge protocol
-itself.
+IPC proof through `tauri::test`. Approval events now share the same JSONL
+forwarding path as desktop/conversation events. The remaining gap is the real
+launched window runtime beyond the current debug-window validation, not the
+bridge protocol itself.

@@ -25,7 +25,7 @@ Ghi lai huong core moi cho routing provider va prompt/instruction config.
 - Da co plugin `anthropic.messages` de dang ky Claude provider qua Anthropic Messages API.
 - Plugin `llama.cpp` van giu lai, nhung hien tai chi la wrapper mong quanh adapter OpenAI-compatible chung.
 - Da co provider health-check aggregation qua:
-  - CLI: `yue-core providers-health`
+  - CLI: `python -m yue_core providers-health`
   - transport method: `providers.health`
 - OpenAI-compatible provider health hien tai goi `GET /v1/models` de kiem tra endpoint song va model id co xuat hien hay khong.
 - Da co runtime settings API cho conversation config:

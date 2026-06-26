@@ -86,7 +86,7 @@ Chi giu 3 thu:
 
 ## Trang thai tong quan
 
-- Da co desktop session protocol, desktop demo, va JSONL transport cho `desktop.*` + `conversation.*`.
+- Da co desktop session protocol, desktop demo, va JSONL transport cho `desktop.*` + `conversation.*` + `approval.*`.
 - Workspace `desktop/` da co frontend shell, Rust native bridge, JS/Rust tests, va debug-window proof khi preview server dang chay.
 - Core da co provider routing theo role (`chat`, `coding_agent`) va prompt-profile config (`personality`, `system_instruction`, `tool_instruction`, `response_instruction`).
 - Core da co plugin `openai.compat` de cau hinh:
@@ -113,6 +113,18 @@ Chi giu 3 thu:
   - `git.status`
   - `git.diff`
   - `package.install`
+- Core da co them lop tool alias/surface gan hon voi coding-agent workflow:
+  - `workspace.list`
+  - `workspace.read`
+  - `workspace.search`
+  - `workspace.grep`
+  - `workspace.write`
+  - `workspace.edit`
+  - `workspace.ops`
+  - `shell.run`
+  - `shell.session`
+  - `todo.update`
+  - `approval.request`
 - Permission model da co enforcement co ban theo profile:
   - `observe`: read-only tooling;
   - `assist`: read/edit/git/process-list auto-allow, action nguy hiem can approval;

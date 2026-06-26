@@ -17,7 +17,7 @@ python -m pytest
 
 Expected:
 
-- 67 tests pass.
+- 82 tests collected.
 - neu bo qua `PYTHONPATH`, `unittest` se khong import duoc `yue_core`.
 
 ## Desktop JS
