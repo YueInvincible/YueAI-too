@@ -1,0 +1,7 @@
+{
+  "id": "openai.compat",
+  "version": "0.1.0",
+  "core_api": "1.1",
+  "entrypoint": "plugin.py:OpenAICompatiblePlugin",
+  "description": "Streaming OpenAI-compatible adapter for cloud and local model endpoints."
+}

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Yue Desktop Preview</title>
+    <link rel="stylesheet" href="/src/styles.css">
+  </head>
+  <body>
+    <div class="desktop-shell">
+      <section class="avatar-card">
+        <button id="avatar-button" class="avatar-button" type="button" aria-label="Toggle Yue console">
+          <span class="avatar-ring"></span>
+          <span class="avatar-core">Yue</span>
+        </button>
+        <div class="avatar-meta">
+          <div class="avatar-title">Yue Desktop</div>
+          <div id="presence-line" class="avatar-line">idle / neutral</div>
+          <div id="window-line" class="avatar-line">anchor: bottom-right</div>
+          <div id="bridge-line" class="avatar-line">bridge: mock | core: idle</div>
+        </div>
+      </section>
+      <section id="console-panel" class="console-panel hidden">
+        <header class="console-header">
+          <div>
+            <div class="console-title">Integrated Console</div>
+            <div id="session-line" class="console-subtitle">session: disconnected</div>
+          </div>
+          <button id="close-console-button" class="ghost-button" type="button">Close</button>
+        </header>
+        <div id="message-log" class="message-log"></div>
+        <form id="message-form" class="message-form">
+          <input id="message-input" class="message-input" name="message" autocomplete="off" placeholder="Send a local message">
+          <button class="send-button" type="submit">Send</button>
+        </form>
+      </section>
+    </div>
+    <script src="/src/runtime.js"></script>
+  </body>
+  </html>

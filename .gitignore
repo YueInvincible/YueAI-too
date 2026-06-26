@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+data/
+logs/
+config.local.toml
+.test-runtime/
+desktop/node_modules/
+desktop/src-tauri/target/
+.tmp-*.log

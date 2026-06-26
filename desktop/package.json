@@ -1,0 +1,11 @@
+{
+  "name": "yue-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Desktop shell workspace for YueAI",
+  "scripts": {
+    "test": "node tests/protocol.test.js",
+    "preview": "node server.js"
+  }
+}

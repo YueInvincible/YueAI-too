@@ -1,0 +1,8 @@
+{
+  "id": "example.greeter",
+  "version": "0.1.0",
+  "core_api": "1.0",
+  "entrypoint": "plugin.py:GreeterPlugin",
+  "description": "Minimal external plugin demonstrating tool and event registration."
+}
+

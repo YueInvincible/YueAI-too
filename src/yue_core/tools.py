@@ -1,0 +1,209 @@
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Mapping
+from datetime import UTC, datetime
+from typing import Any
+
+from .audit import AuditLog
+from .contracts import (
+    CoreEvent,
+    PermissionOutcome,
+    Tool,
+    ToolContext,
+    ToolRequest,
+    ToolResult,
+    ToolSpec,
+    ToolStatus,
+)
+from .errors import ToolRegistrationError
+from .events import EventBus
+from .permissions import PermissionEngine
+from .schema import validate, validate_schema
+
+
+class ToolRegistry:
+    def __init__(self) -> None:
+        self._tools: dict[str, Tool] = {}
+
+    def register(self, tool: Tool) -> None:
+        spec = tool.spec
+        if not spec.name or "." not in spec.name:
+            raise ToolRegistrationError("Tool names must be namespaced, e.g. file.read")
+        if spec.name in self._tools:
+            raise ToolRegistrationError(f"Tool already registered: {spec.name}")
+        validate_schema(spec.input_schema)
+        self._tools[spec.name] = tool
+
+    def unregister_plugin(self, plugin_id: str) -> None:
+        self._tools = {
+            name: tool
+            for name, tool in self._tools.items()
+            if tool.spec.plugin_id != plugin_id
+        }
+
+    def get(self, name: str) -> Tool:
+        try:
+            return self._tools[name]
+        except KeyError as exc:
+            raise KeyError(f"Unknown tool: {name}") from exc
+
+    def list_specs(self) -> list[ToolSpec]:
+        return [self._tools[name].spec for name in sorted(self._tools)]
+
+
+class ToolExecutor:
+    def __init__(
+        self,
+        registry: ToolRegistry,
+        permissions: PermissionEngine,
+        events: EventBus,
+        audit: AuditLog,
+        *,
+        default_timeout_seconds: float = 30.0,
+        services: Mapping[str, Any] | None = None,
+    ) -> None:
+        self.registry = registry
+        self.permissions = permissions
+        self.events = events
+        self.audit = audit
+        self.default_timeout_seconds = default_timeout_seconds
+        self.services = services or {}
+        self._cancel_events: dict[str, asyncio.Event] = {}
+
+    def cancel(self, request_id: str) -> bool:
+        event = self._cancel_events.get(request_id)
+        if event is None:
+            return False
+        event.set()
+        return True
+
+    async def execute(self, request: ToolRequest) -> ToolResult:
+        started = datetime.now(UTC)
+        await self.audit.write(
+            "tool.request",
+            {
+                "request_id": request.id,
+                "tool": request.tool_name,
+                "actor": request.actor,
+                "session_id": request.session_id,
+                "argument_keys": sorted(request.arguments),
+            },
+        )
+        try:
+            tool = self.registry.get(request.tool_name)
+        except KeyError as exc:
+            result = self._result(request, ToolStatus.FAILED, started, error=str(exc))
+            await self._finish(request, result)
+            return result
+
+        try:
+            validate(request.arguments, tool.spec.input_schema)
+        except Exception as exc:
+            result = self._result(request, ToolStatus.FAILED, started, error=str(exc))
+            await self._finish(request, result)
+            return result
+
+        decision = await self.permissions.evaluate(request, tool.spec)
+        await self.audit.write(
+            "permission.decision",
+            {
+                "request_id": request.id,
+                "tool": request.tool_name,
+                "outcome": decision.outcome.value,
+                "reason": decision.reason,
+                "rule_id": decision.rule_id,
+            },
+        )
+        if decision.outcome is not PermissionOutcome.ALLOW:
+            result = self._result(
+                request,
+                ToolStatus.DENIED,
+                started,
+                error=decision.reason,
+            )
+            await self._finish(request, result)
+            return result
+
+        cancel_event = asyncio.Event()
+        self._cancel_events[request.id] = cancel_event
+        context = ToolContext(
+            request=request,
+            publish=self.events.publish,
+            cancelled=cancel_event.is_set,
+            services=self.services,
+        )
+        await self.events.publish(
+            CoreEvent(
+                "tool.started",
+                {"request_id": request.id, "tool": request.tool_name},
+                correlation_id=request.id,
+            )
+        )
+
+        timeout = tool.spec.timeout_seconds or self.default_timeout_seconds
+        try:
+            async with asyncio.timeout(timeout):
+                output = await tool.invoke(request.arguments, context)
+            status = ToolStatus.CANCELLED if cancel_event.is_set() else ToolStatus.SUCCEEDED
+            result = self._result(request, status, started, output=output)
+        except TimeoutError:
+            cancel_event.set()
+            result = self._result(
+                request,
+                ToolStatus.TIMED_OUT,
+                started,
+                error=f"Tool exceeded {timeout:g}s timeout",
+            )
+        except asyncio.CancelledError:
+            cancel_event.set()
+            result = self._result(request, ToolStatus.CANCELLED, started, error="Cancelled")
+        except Exception as exc:
+            result = self._result(request, ToolStatus.FAILED, started, error=str(exc))
+        finally:
+            self._cancel_events.pop(request.id, None)
+
+        await self._finish(request, result)
+        return result
+
+    async def _finish(self, request: ToolRequest, result: ToolResult) -> None:
+        await self.audit.write(
+            "tool.result",
+            {
+                "request_id": result.request_id,
+                "tool": result.tool_name,
+                "status": result.status.value,
+                "error": result.error,
+                "output_type": type(result.output).__name__,
+                "duration_ms": round(
+                    (result.finished_at - result.started_at).total_seconds() * 1000,
+                    3,
+                ),
+            },
+        )
+        await self.events.publish(
+            CoreEvent(
+                "tool.finished",
+                result.to_dict(),
+                correlation_id=request.id,
+            )
+        )
+
+    @staticmethod
+    def _result(
+        request: ToolRequest,
+        status: ToolStatus,
+        started: datetime,
+        *,
+        output: Any = None,
+        error: str | None = None,
+    ) -> ToolResult:
+        return ToolResult(
+            request_id=request.id,
+            tool_name=request.tool_name,
+            status=status,
+            output=output,
+            error=error,
+            started_at=started,
+            finished_at=datetime.now(UTC),
+        )
