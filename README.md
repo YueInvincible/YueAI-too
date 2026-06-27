@@ -1,5 +1,6 @@
 # Yue Core
 
+`Toi Yeu ClaudeCode :D`
 Yue Core is the local-first orchestration layer for YueAI. The current scope is
 limited to core stability: tool execution, provider contracts, plugin loading,
 conversation flow, desktop-session IPC, and audit/logging.
