@@ -147,7 +147,15 @@ fn write_diagnostic_output(path: &PathBuf, payload: &str) {
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let _ = fs::write(path, payload);
+    let mut line = String::from(payload);
+    if !line.ends_with('\n') {
+        line.push('\n');
+    }
+    let _ = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .and_then(|mut file| std::io::Write::write_all(&mut file, line.as_bytes()));
 }
 
 fn write_diagnostic_stage(path: &PathBuf, stage: &str, detail: Option<&str>) {

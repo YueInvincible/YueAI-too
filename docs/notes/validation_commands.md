@@ -127,18 +127,23 @@ if (Get-Process -Id $process.Id -ErrorAction SilentlyContinue) { Stop-Process -I
 
 Expected:
 
-- diagnostic JSON includes:
+- diagnostic JSONL should contain a later line with:
   - `readyState: "complete"`
   - `hasInvoke: true`
   - `hasIpc: true`
   - `bridgeLine: "bridge: spawned | core: started"`
   - `stage: "runtime_bootstrap"`
 
-Latest re-check after startup/config rewiring:
+Latest re-check on 2026-07-07:
 
 - `cargo tauri build --bundles nsis --ci --no-sign` van pass.
-- NSIS-installed app trong lan re-check gan nhat chi tra `{"stage":"scheduled"}`.
-- Nghia la packaged non-dev proof hien chua duoc re-verify xanh; can debug tiep truoc khi danh dau xong path nay.
+- NSIS-installed app da ghi duoc JSONL startup timeline day du, ket thuc bang `runtime_bootstrap`.
+- Ban ghi thanh cong co:
+  - `readyState: "complete"`
+  - `hasInvoke: true`
+  - `hasIpc: true`
+  - `bridgeLine: "bridge: spawned | core: started"`
+- Nghia la packaged non-dev proof hien da duoc re-verify xanh.
 
 Cleanup proof:
 

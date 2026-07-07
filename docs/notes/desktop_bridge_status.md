@@ -115,6 +115,7 @@
   - `probe_dispatched`
   - `probe_timeout`
   - callback payload co them `locationHref`
+  - diagnostic file gio la append-only JSONL, giu duoc ca timeline thay vi chi con event cuoi
 
 ## Packaged/non-dev path
 
@@ -134,12 +135,31 @@ Chua verify lai sau dot startup/config moi:
   - `stage: "runtime_bootstrap"`
 - cleanup proof packaged path chua duoc re-xac nhan lai sau dot nay.
 
+Re-check ngay 2026-07-07:
+
+- `cargo tauri build --bundles nsis --ci --no-sign` pass.
+- NSIS-installed app da duoc silent-install lai vao `.test-runtime/nsis-app`.
+- Diagnostic JSONL moi da ghi duoc timeline:
+  - `setup`
+  - `scheduled`
+  - `page_load`
+  - `page_load_probe`
+  - `runtime_bootstrap_start`
+  - `probe_dispatching`
+  - `probe_dispatched`
+  - payload eval callback
+  - `runtime_bootstrap`
+- Ban ghi cuoi xac nhan:
+  - `readyState: "complete"`
+  - `hasInvoke: true`
+  - `hasIpc: true`
+  - `bridgeLine: "bridge: spawned | core: started"`
+- Nghia la packaged/non-dev bootstrap path hien da xanh lai.
+
 ## Dieu con can lam
 
 - repeated launch / soak proof
 - lifecycle hardening khi bridge loi hoac app dong bat thuong
-- test/harness ro hon cho packaged interaction proof, thay vi chi diagnostic bootstrap
-- tim nguyen nhan packaged diagnostic dung o `scheduled` trong lan re-check moi nhat
 - giam drift giua `desktop/src/app.js` va `desktop/src/runtime.js`; runtime path hien dang di truoc
 - noi approval/tool-result UX sat hon voi conversation stream thuc te
 - neu tiep tuc UI:
@@ -165,7 +185,11 @@ Chua verify lai sau dot startup/config moi:
 - Re-check ngay 2026-07-07 cho desktop Tauri diagnostic harness:
   - `cargo check --manifest-path desktop/src-tauri/Cargo.toml`
   - `cargo test --manifest-path desktop/src-tauri/Cargo.toml`
-- Chua rebuild/re-run lai NSIS-installed app sau khi them richer diagnostic stages, nen `scheduled` van la fact lich su, chua phai ket qua cua harness moi.
+- Re-check ngay 2026-07-07 cho packaged NSIS path:
+  - `cargo tauri build --bundles nsis --ci --no-sign`
+  - silent-install NSIS vao `.test-runtime/nsis-app`
+  - launch app voi `YUE_DESKTOP_DIAGNOSTIC_PATH`
+  - doc file JSONL de xem toan bo startup timeline
 
 ## Dung doc note nay khi nao
 

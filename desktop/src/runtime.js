@@ -1545,6 +1545,18 @@
     return new Promise((resolve) => window.setTimeout(resolve, ms));
   }
 
+  async function tryReportStartupDiagnostic(payload) {
+    try {
+      const invoke = detectTauriInvoke(window);
+      if (!invoke) {
+        return;
+      }
+      await invoke("bridge_report_diagnostic", { payload });
+    } catch {
+      // no-op
+    }
+  }
+
   async function waitForTauriInvoke(globalObject, { attempts = 40, intervalMs = 100 } = {}) {
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       const invoke = detectTauriInvoke(globalObject);
@@ -3378,6 +3390,14 @@
   }
 
   async function bootstrap() {
+    await tryReportStartupDiagnostic({
+      stage: "runtime_bootstrap_start",
+      readyState: document.readyState,
+      hasTauri: typeof window.__TAURI__ !== "undefined",
+      hasInternals: typeof window.__TAURI_INTERNALS__ !== "undefined",
+      hasInvoke: typeof window.__TAURI_INTERNALS__?.invoke === "function",
+      hasIpc: typeof window.__TAURI_INTERNALS__?.ipc === "function",
+    });
     const fallbackTransport = window.__YUE_TRANSPORT__ || createMockTransport();
     const invoke = await waitForTauriInvoke(window);
     const browserBridge = invoke ? null : await detectBrowserBridge();
@@ -4069,23 +4089,24 @@
     render();
   }
 
-  avatarButton.addEventListener("click", async () => {
-    await toggleConsole("avatar.click");
-  });
+  try {
+    avatarButton.addEventListener("click", async () => {
+      await toggleConsole("avatar.click");
+    });
 
-  closeConsoleButton.addEventListener("click", async () => {
-    await toggleConsole("console.close");
-  });
+    closeConsoleButton.addEventListener("click", async () => {
+      await toggleConsole("console.close");
+    });
 
-  messageForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const text = messageInput.value.trim();
-    if (!text) {
-      return;
-    }
-    messageInput.value = "";
-    await sendMessage(text);
-  });
+    messageForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const text = messageInput.value.trim();
+      if (!text) {
+        return;
+      }
+      messageInput.value = "";
+      await sendMessage(text);
+    });
 
   opsDrawerButton?.addEventListener("click", () => {
     state = applyActiveDrawer(state, state.activeDrawer === "ops" ? null : "ops");
@@ -4292,6 +4313,53 @@
     }
   });
 
-  render();
-  void bootstrap();
+  window.addEventListener("error", (event) => {
+    void tryReportStartupDiagnostic({
+      stage: "runtime_window_error",
+      message: event.message || "unknown error",
+      filename: event.filename || null,
+      lineno: event.lineno || null,
+      colno: event.colno || null,
+      error: event.error?.stack || event.error?.message || null,
+      readyState: document.readyState,
+    });
+  });
+
+  window.addEventListener("unhandledrejection", (event) => {
+    const reason = event.reason;
+    void tryReportStartupDiagnostic({
+      stage: "runtime_unhandled_rejection",
+      message:
+        typeof reason === "string"
+          ? reason
+          : reason?.stack || reason?.message || JSON.stringify(reason ?? null),
+      readyState: document.readyState,
+    });
+  });
+
+    render();
+    void bootstrap().catch((error) => {
+      void tryReportStartupDiagnostic({
+        stage: "runtime_bootstrap_error",
+        message: error?.stack || error?.message || String(error),
+        readyState: document.readyState,
+        hasTauri: typeof window.__TAURI__ !== "undefined",
+        hasInternals: typeof window.__TAURI_INTERNALS__ !== "undefined",
+        hasInvoke: typeof window.__TAURI_INTERNALS__?.invoke === "function",
+        hasIpc: typeof window.__TAURI_INTERNALS__?.ipc === "function",
+        bridgeLine: bridgeLine?.textContent || null,
+      });
+    });
+  } catch (error) {
+    void tryReportStartupDiagnostic({
+      stage: "runtime_setup_error",
+      message: error?.stack || error?.message || String(error),
+      readyState: document.readyState,
+      hasTauri: typeof window.__TAURI__ !== "undefined",
+      hasInternals: typeof window.__TAURI_INTERNALS__ !== "undefined",
+      hasInvoke: typeof window.__TAURI_INTERNALS__?.invoke === "function",
+      hasIpc: typeof window.__TAURI_INTERNALS__?.ipc === "function",
+      bridgeLine: bridgeLine?.textContent || null,
+    });
+  }
 })();

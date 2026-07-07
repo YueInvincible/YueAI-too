@@ -228,7 +228,16 @@ pub fn bridge_report_diagnostic(payload: Value) -> BridgeResponse {
             return error_response(format!("failed to create diagnostic directory: {error}"));
         }
     }
-    if let Err(error) = fs::write(&path, serialized) {
+    let mut line = serialized;
+    if !line.ends_with('\n') {
+        line.push('\n');
+    }
+    if let Err(error) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .and_then(|mut file| std::io::Write::write_all(&mut file, line.as_bytes()))
+    {
         return error_response(format!("failed to write diagnostic payload: {error}"));
     }
 

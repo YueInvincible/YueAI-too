@@ -12,13 +12,12 @@ Completed and verified
 - Active provider drawer now has a dedicated runtime refresh action and readiness strip for reachability/model detection.
 - Desktop protocol/state test coverage now locks the active-provider flow, including persisted apply-state through the mock transport.
 - Desktop Tauri diagnostic harness now retries packaged bootstrap probes and writes richer stages (`probe_dispatching`, `probe_dispatched`, `probe_timeout`) for NSIS debugging.
+- Packaged NSIS desktop path has been re-verified green with the richer diagnostic harness; the log reaches `runtime_bootstrap` and `bridge: spawned | core: started`.
 - JS protocol tests pass.
 - Full Python test suite passes.
 
 Known next targets
 ------------------
-- Re-verify packaged Tauri bootstrap path; latest note still says packaged diagnostics can stop at stage `scheduled`.
-- Rebuild and rerun the NSIS-installed app against the richer diagnostic harness to confirm whether packaged bootstrap still stops before `runtime_bootstrap`.
 - Reduce drift between `desktop/src/app.js` and `desktop/src/runtime.js`; note that `desktop/index.html` currently loads `runtime.js` directly, so `runtime.js` remains the live shell source of truth until unified.
 - Add clearer local-runtime readiness and recovery UX for the localhost provider path.
 - Keep extending local-runtime readiness and recovery UX for the localhost provider path.

@@ -104,10 +104,17 @@ Desktop shell UI
     - khung chat frame co dinh, khong con che do `Focus chat`.
     - active provider co them runtime readiness strip + nut `Refresh runtime`.
   - bat buoc giu dong bo logic voi `app.js` hoac ghi ro cho note neu runtime path di truoc.
+  - startup diagnostics gio co them:
+    - `runtime_bootstrap_start`
+    - `runtime_bootstrap_error`
+    - `runtime_setup_error`
+    - `runtime_window_error`
+    - `runtime_unhandled_rejection`
 
 - `desktop/src-tauri/src/main.rs`
   - ngoai bridge wiring, file nay con giu diagnostic harness cho debug packaged bootstrap.
   - harness gio retry probe callback nhieu lan va ghi stage chi tiet hon (`probe_dispatching`, `probe_dispatched`, `probe_timeout`) de phan biet packaged app dang ket o dau.
+  - diagnostic output gio append theo JSONL, khong con ghi de event truoc.
 
 - `desktop/src-tauri/src/bridge.rs`
   - bridge native spawn `python -m yue_core serve` cho desktop shell.
