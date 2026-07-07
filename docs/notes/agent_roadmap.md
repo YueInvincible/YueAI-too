@@ -11,7 +11,8 @@ File nay la route map thuc te cho agent sau: bat dau tu dau, mo file nao truoc, 
 - `provider_and_prompt_config.md` la file chinh cho route provider, prompt profile, va editor lien quan.
 - `desktop_bridge_status.md` la file chinh cho bridge / non-dev / packaged proof.
 - `app_development_roadmap.md` la file chinh cho thu tu phat trien san pham tong the.
-- Uu tien hien tai: core + tooling cho agent truoc; `LM Studio` la local provider path uu tien; `llama.cpp` editor rieng de sau.
+- Uu tien hien tai: core + tooling cho agent truoc; local host OpenAI-compatible server tai `127.0.0.1:8080` la local provider path uu tien; `LM Studio` la path phu.
+- Surface tool uu tien cho `coding_agent` da chot theo alias underscore de prompt va runtime noi cung mot ngon ngu: `workspace_list`, `workspace_read`, `workspace_search`, `workspace_grep`, `workspace_write`, `workspace_edit`, `workspace_ops`, `shell_run`, `shell_session`, `git_status`, `git_diff`, `todo_update`, `ask_user_approval`.
 - `docs/*.md` o root la reference docs. Khong mo mac dinh tru khi note trong `docs/notes/` dan ro.
 
 ## Thu tu mo file khuyen nghi
@@ -42,6 +43,11 @@ Vung nay la lop noi giua desktop UI, protocol, transport, va core settings/provi
 - `desktop/src/state.js`
   - source of truth cho view-state.
   - moi field UI moi phai duoc them vao day truoc de render an toan.
+  - tool control UX moi cung di qua day:
+    - `allowAllCmd*`
+    - `parallelInspect*`
+    - `toolsCatalog`
+    - `toolActivity*`
 
 - `desktop/src/protocol.js`
   - source of truth cho method surface frontend duoc goi.
@@ -127,6 +133,15 @@ phai mirror method names va payload shape cua `protocol.js`.
 6. Mo `desktop/src/mock.js`.
 7. Mo `desktop/src/app.js`.
 8. Mo `desktop/src/runtime.js`.
+
+Neu task tiep theo la tool UX/approval UX:
+
+1. Doc `permissions_and_safety.md`.
+2. Doc `runtime_flow_map.md`.
+3. Mo `desktop/src/state.js`.
+4. Mo `desktop/src/app.js`.
+5. Mo `desktop/src/runtime.js`.
+6. Neu can doi contract/event thi mo them `src/yue_core/transport.py`, `src/yue_core/tools.py`, `src/yue_core/conversation.py`.
 
 ### Neu task lien quan persistence config
 

@@ -12,6 +12,10 @@ class ConfigTests(unittest.TestCase):
             "Inspect relevant files before editing",
             settings.conversation.prompt_profiles["coding_agent"]["tool_instruction"],
         )
+        self.assertIn(
+            "call multiple read tools in the same turn",
+            settings.conversation.prompt_profiles["coding_agent"]["tool_instruction"],
+        )
 
     def test_conversation_settings_load(self):
         with workspace_temp_dir() as temp:

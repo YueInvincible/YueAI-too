@@ -80,6 +80,29 @@ export class CoreSessionClient {
     return this.client.respondApproval(approvalId, approved);
   }
 
+  async getToolActivitySnapshot() {
+    return this.client.getToolActivitySnapshot();
+  }
+
+  async listTools() {
+    return this.client.listTools();
+  }
+
+  async invokeMany(calls, options = {}) {
+    return this.client.invokeMany(calls, {
+      ...options,
+      sessionId: options.sessionId || this.sessionId,
+    });
+  }
+
+  async getAllowAllCmd() {
+    return this.client.getAllowAllCmd(this.sessionId);
+  }
+
+  async setAllowAllCmd(allowed, actor = "desktop-ui") {
+    return this.client.setAllowAllCmd(this.sessionId, allowed, actor);
+  }
+
   async createConversation(title = "Yue Desktop") {
     return this.client.createConversation(title);
   }

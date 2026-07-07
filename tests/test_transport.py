@@ -41,6 +41,40 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(response["ok"])
         self.assertEqual(response["result"]["output"]["text"], "hello")
 
+    async def test_invoke_many_parallel_request(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            core = YueCore(settings)
+            server = JsonLineServer(core)
+            async with core:
+                response = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "batch",
+                            "method": "tools.invoke_many",
+                            "params": {
+                                "parallel": True,
+                                "calls": [
+                                    {
+                                        "name": "workspace.read",
+                                        "arguments": {"path": "PROJECT_HANDOFF.md"},
+                                    },
+                                    {
+                                        "name": "workspace.read",
+                                        "arguments": {"path": "docs/notes/agent_start_here.md"},
+                                    },
+                                ],
+                            },
+                        }
+                    )
+                )
+        self.assertTrue(response["ok"])
+        self.assertTrue(response["result"]["parallel"])
+        self.assertEqual(len(response["result"]["results"]), 2)
+        self.assertIn("YueAI Project Handoff", response["result"]["results"][0]["output"]["content"])
+        self.assertIn("Agent Start Here", response["result"]["results"][1]["output"]["content"])
+
     async def test_accepts_utf8_bom(self):
         with workspace_temp_dir() as temp:
             settings = Settings()
@@ -55,12 +89,60 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         names = {item["name"] for item in response["result"]}
         self.assertIn("file.read", names)
         self.assertIn("workspace.read", names)
+        self.assertIn("workspace_read", names)
         self.assertIn("shell.exec", names)
         self.assertIn("shell.run", names)
+        self.assertIn("shell_run", names)
         self.assertIn("shell.session", names)
+        self.assertIn("shell_session", names)
+        self.assertIn("ask_user_approval", names)
         self.assertIn("git.status", names)
+        self.assertIn("git_status", names)
         self.assertIn("process.list", names)
         self.assertIn("todo.update", names)
+        self.assertIn("todo_update", names)
+        tools_by_name = {item["name"]: item for item in response["result"]}
+        self.assertEqual(tools_by_name["workspace.read"]["output_kind"], "file_content")
+        self.assertTrue(tools_by_name["workspace.read"]["metadata"]["parallel_safe"])
+        self.assertIn(
+            "line-range metadata",
+            tools_by_name["workspace.read"]["model_description"],
+        )
+        self.assertEqual(tools_by_name["shell.run"]["output_kind"], "command_output")
+        self.assertFalse(tools_by_name["shell.run"]["metadata"]["parallel_safe"])
+        self.assertIn(
+            "sanitized command-style output",
+            tools_by_name["shell.run"]["model_description"],
+        )
+
+    async def test_tools_list_can_filter_for_coding_agent_role(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            core = YueCore(settings)
+            server = JsonLineServer(core)
+            async with core:
+                response = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "coding-tools",
+                            "method": "tools.list",
+                            "params": {"provider_role": "coding_agent"},
+                        }
+                    )
+                )
+        self.assertTrue(response["ok"])
+        names = {item["name"] for item in response["result"]}
+        self.assertIn("workspace_read", names)
+        self.assertIn("shell_run", names)
+        self.assertIn("ask_user_approval", names)
+        self.assertIn("git_diff", names)
+        self.assertIn("todo_update", names)
+        self.assertNotIn("workspace.read", names)
+        self.assertNotIn("shell.run", names)
+        self.assertNotIn("file.read", names)
+        self.assertNotIn("shell.exec", names)
+        self.assertNotIn("approval.request", names)
 
     async def test_conversation_round_trip(self):
         with workspace_temp_dir() as temp:
@@ -142,6 +224,107 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(response["ok"])
         self.assertTrue(response["result"]["output"]["approved"])
 
+    async def test_allow_all_cmd_grant_round_trip(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            settings.permissions.profile = "assist"
+            core = YueCore(settings)
+            server = JsonLineServer(core)
+            async with core:
+                updated = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "grant",
+                            "method": "permissions.allow_all_cmd.set",
+                            "params": {
+                                "session_id": "conversation-1",
+                                "allowed": True,
+                                "actor": "ui",
+                            },
+                        }
+                    )
+                )
+                current = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "get",
+                            "method": "permissions.allow_all_cmd.get",
+                            "params": {"session_id": "conversation-1"},
+                        }
+                    )
+                )
+                invoke = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "invoke",
+                            "method": "tools.invoke",
+                            "params": {
+                                "name": "shell.run",
+                                "arguments": {
+                                    "command": "echo hi",
+                                    "dry_run": True,
+                                },
+                                "actor": "model",
+                                "session_id": "conversation-1",
+                            },
+                        }
+                    )
+                )
+        self.assertTrue(updated["ok"])
+        self.assertTrue(current["ok"])
+        self.assertTrue(current["result"]["allow_all_cmd"])
+        self.assertTrue(invoke["ok"])
+        self.assertEqual(invoke["result"]["status"], "succeeded")
+
+    async def test_allow_all_cmd_grant_rejects_model_actor(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            settings.permissions.profile = "assist"
+            core = YueCore(settings)
+            server = JsonLineServer(core)
+            async with core:
+                response = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "deny-model",
+                            "method": "permissions.allow_all_cmd.set",
+                            "params": {
+                                "session_id": "conversation-1",
+                                "allowed": True,
+                                "actor": "model",
+                            },
+                        }
+                    )
+                )
+        self.assertFalse(response["ok"])
+        self.assertIn("model actor cannot change allow-all-cmd", response["error"])
+
+    async def test_allow_all_cmd_grant_rejects_observe_profile(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            settings.permissions.profile = "observe"
+            core = YueCore(settings)
+            server = JsonLineServer(core)
+            async with core:
+                response = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "deny-observe",
+                            "method": "permissions.allow_all_cmd.set",
+                            "params": {
+                                "session_id": "conversation-1",
+                                "allowed": True,
+                                "actor": "desktop-ui",
+                            },
+                        }
+                    )
+                )
+        self.assertFalse(response["ok"])
+        self.assertIn("observe profile cannot change allow-all-cmd", response["error"])
+
     async def test_pending_approval_bridge_round_trip(self):
         with workspace_temp_dir() as temp:
             settings = Settings()
@@ -195,6 +378,76 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(listed["result"][0]["tool_name"], "shell.run")
         self.assertTrue(responded["ok"])
         self.assertTrue(responded["result"]["approved"])
+        self.assertTrue(decision)
+
+    async def test_tool_activity_snapshot_round_trip(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            core = YueCore(settings)
+            server = JsonLineServer(core)
+            async with core:
+                approvals = core.services["core.approvals"]
+                pending_task = asyncio.create_task(
+                    approvals.request_approval(
+                        ToolRequest(
+                            tool_name="shell.run",
+                            arguments={"command": "git push"},
+                            actor="model",
+                            session_id="conversation-1",
+                        ),
+                        ToolSpec(
+                            name="shell.run",
+                            description="Run a shell command",
+                            input_schema={},
+                            capability=Capability.SHELL_EXECUTE,
+                            risk=RiskLevel.HIGH,
+                        ),
+                        "Command requires explicit approval",
+                    )
+                )
+                await asyncio.sleep(0)
+                listed = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "pending",
+                            "method": "approval.pending.list",
+                        }
+                    )
+                )
+                snapshot = None
+                for _ in range(20):
+                    snapshot = await server.handle_line(
+                        json.dumps(
+                            {
+                                "id": "tool-activity",
+                                "method": "tool.activity.snapshot",
+                            }
+                        )
+                    )
+                    if snapshot["result"]["items"]:
+                        break
+                    await asyncio.sleep(0.01)
+                approval_id = listed["result"][0]["approval_id"]
+                responded = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "respond",
+                            "method": "approval.respond",
+                            "params": {
+                                "approval_id": approval_id,
+                                "approved": True,
+                            },
+                        }
+                    )
+                )
+                decision = await pending_task
+        self.assertTrue(snapshot["ok"])
+        self.assertEqual(snapshot["result"]["status"], "Approval requested for shell.run")
+        self.assertEqual(len(snapshot["result"]["items"]), 1)
+        self.assertEqual(snapshot["result"]["items"][0]["tool_name"], "shell.run")
+        self.assertEqual(snapshot["result"]["items"][0]["status"], "waiting_approval")
+        self.assertTrue(responded["ok"])
         self.assertTrue(decision)
 
     async def test_conversation_settings_round_trip(self):
@@ -441,6 +694,95 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(updated["result"]["providers"][0]["provider_name"], "claude.coder")
         self.assertEqual(updated["result"]["providers"][0]["model"], "claude-3-7-sonnet-latest")
 
+    async def test_active_provider_settings_round_trip(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            settings.plugins.roots = [(Path.cwd() / "plugins").resolve()]
+            settings.plugins.enabled = ["llama.cpp"]
+            settings.plugins.options = {
+                "llama.cpp": {
+                    "provider_name": "localhost.chat",
+                    "base_url": "http://127.0.0.1:8080",
+                    "model": "Qwen3-4B-Q5_K_M.gguf",
+                }
+            }
+            settings.conversation.default_provider = "localhost.chat"
+            settings.conversation.routes["chat"] = {
+                "provider": "localhost.chat",
+                "prompt_profile": "default",
+            }
+            settings.conversation.routes["coding_agent"] = {
+                "provider": "localhost.chat",
+                "prompt_profile": "coding_agent",
+            }
+            core = YueCore(settings)
+            server = JsonLineServer(core)
+            async with core:
+                current = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "active-provider-get",
+                            "method": "settings.providers.active.get",
+                        }
+                    )
+                )
+                updated = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "active-provider-update",
+                            "method": "settings.providers.active.update",
+                            "params": {
+                                "provider": {
+                                    "kind": "ollama",
+                                    "provider_name": "ollama.chat",
+                                    "host": "127.0.0.1",
+                                    "port": 11434,
+                                    "model": "qwen2.5-coder:7b",
+                                    "temperature": 0.5,
+                                    "max_tokens": 2048,
+                                }
+                            },
+                        }
+                    )
+                )
+        self.assertTrue(current["ok"])
+        self.assertEqual(current["result"]["active_provider"]["kind"], "llama.cpp")
+        self.assertTrue(updated["ok"])
+        self.assertEqual(updated["result"]["active_provider"]["kind"], "ollama")
+        self.assertEqual(updated["result"]["conversation"]["default_provider"], "ollama.chat")
+
+    async def test_active_provider_catalog_round_trip(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            core = YueCore(settings)
+            server = JsonLineServer(core)
+            async with core:
+                with patch("yue_core.app.OpenAICompatibleProvider.health", return_value={
+                    "ok": True,
+                    "reachable": True,
+                    "models": ["gpt-4.1-mini", "gpt-4.1"],
+                }):
+                    response = await server.handle_line(
+                        json.dumps(
+                            {
+                                "id": "active-provider-catalog",
+                                "method": "settings.providers.active.catalog",
+                                "params": {
+                                    "provider": {
+                                        "kind": "openai",
+                                        "provider_name": "openai.chat",
+                                        "api_key_env": "OPENAI_API_KEY",
+                                    }
+                                },
+                            }
+                        )
+                    )
+        self.assertTrue(response["ok"])
+        self.assertEqual(response["result"]["selected_model"], "gpt-4.1-mini")
+        self.assertEqual(response["result"]["models"][0], "gpt-4.1-mini")
+
     async def test_desktop_round_trip(self):
         with workspace_temp_dir() as temp:
             settings = Settings()
@@ -514,6 +856,44 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("desktop.session.attached", event_topics)
         self.assertIn("desktop.state.changed", event_topics)
         self.assertTrue(any(message.get("id") == "attach" for message in messages))
+
+    async def test_serve_forwards_tool_events(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            stdin = io.StringIO(
+                json.dumps(
+                    {
+                        "id": "invoke",
+                        "method": "tools.invoke",
+                        "params": {
+                            "name": "process.list",
+                            "arguments": {"dry_run": True},
+                            "actor": "ui",
+                            "session_id": "desktop-ui",
+                        },
+                    }
+                )
+                + "\n"
+            )
+            stdout = io.StringIO()
+            core = YueCore(settings)
+            server = JsonLineServer(core, stdin=stdin, stdout=stdout)
+            await server.serve()
+
+        messages = [
+            json.loads(line)
+            for line in stdout.getvalue().splitlines()
+            if line.strip()
+        ]
+        event_topics = [
+            message["event"]["topic"]
+            for message in messages
+            if "event" in message
+        ]
+        self.assertIn("tool.started", event_topics)
+        self.assertIn("tool.finished", event_topics)
+        self.assertTrue(any(message.get("id") == "invoke" for message in messages))
 
 
 if __name__ == "__main__":

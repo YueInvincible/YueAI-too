@@ -9,6 +9,7 @@ import urllib.request
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from .env_utils import temporarily_unset_env
 from .contracts import (
     ChatMessage,
     MessageRole,
@@ -187,7 +188,9 @@ class AnthropicMessagesProvider:
         )
         current_event = ""
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+            with temporarily_unset_env("SSLKEYLOGFILE"):
+                response = urllib.request.urlopen(request, timeout=self.timeout_seconds)
+            with response:
                 response_holder.append(response)
                 for raw_line in response:
                     if stop_event.is_set():
@@ -248,9 +251,11 @@ class AnthropicMessagesProvider:
             method="GET",
         )
         try:
-            with urllib.request.urlopen(
-                request, timeout=self.health_timeout_seconds
-            ) as response:
+            with temporarily_unset_env("SSLKEYLOGFILE"):
+                response = urllib.request.urlopen(
+                    request, timeout=self.health_timeout_seconds
+                )
+            with response:
                 payload = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             try:
@@ -320,7 +325,7 @@ class AnthropicMessagesProvider:
     def _tool_payload(spec) -> dict[str, Any]:
         return {
             "name": spec.name,
-            "description": spec.description,
+            "description": spec.model_description(),
             "input_schema": dict(spec.input_schema),
         }
 

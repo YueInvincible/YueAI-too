@@ -243,6 +243,7 @@ impl CoreBridgeProcess {
         command
             .arg("-m")
             .arg("yue_core")
+            .args(spawn_core_config_args(&root))
             .arg("serve")
             .current_dir(&root)
             .env("PYTHONDONTWRITEBYTECODE", "1")
@@ -495,6 +496,53 @@ fn pythonpath_for_root(root: &Path) -> String {
     format!("{}{}.", root.join("src").display(), separator)
 }
 
+#[cfg(not(test))]
+fn core_config_args(root: &Path) -> Vec<String> {
+    resolve_core_config_path(root)
+        .map(|path| vec!["--config".to_string(), path.display().to_string()])
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+fn spawn_core_config_args(root: &Path) -> Vec<String> {
+    env::var_os("YUE_CORE_CONFIG")
+        .map(PathBuf::from)
+        .and_then(|path| {
+            let resolved = if path.is_absolute() {
+                path
+            } else {
+                root.join(path)
+            };
+            resolved.is_file().then_some(resolved)
+        })
+        .map(|path| vec!["--config".to_string(), path.display().to_string()])
+        .unwrap_or_default()
+}
+
+#[cfg(not(test))]
+fn spawn_core_config_args(root: &Path) -> Vec<String> {
+    core_config_args(root)
+}
+
+fn resolve_core_config_path(root: &Path) -> Option<PathBuf> {
+    let explicit = env::var_os("YUE_CORE_CONFIG").map(PathBuf::from);
+    let candidates = explicit.into_iter().chain([
+        root.join("config.local.toml"),
+        root.join("config.example.toml"),
+    ]);
+    for candidate in candidates {
+        let resolved = if candidate.is_absolute() {
+            candidate
+        } else {
+            root.join(candidate)
+        };
+        if resolved.is_file() {
+            return Some(resolved);
+        }
+    }
+    None
+}
+
 fn remember_error(target: &Arc<Mutex<Option<String>>>, message: &str) {
     if let Ok(mut slot) = target.lock() {
         *slot = Some(message.to_string());
@@ -530,6 +578,17 @@ fn error_response(message: impl Into<String>) -> BridgeResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_test_dir(name: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time before epoch")
+            .as_nanos();
+        let path = env::temp_dir().join(format!("yue-bridge-{name}-{unique}"));
+        fs::create_dir_all(&path).expect("create temp test dir");
+        path
+    }
 
     #[test]
     fn bridge_process_round_trips_desktop_request_and_receives_events() {
@@ -703,5 +762,19 @@ mod tests {
         assert!(completed_runs >= 2);
 
         process.shutdown().expect("bridge shutdown");
+    }
+
+    #[test]
+    fn resolve_core_config_path_prefers_local_then_example() {
+        let root = temp_test_dir("config-priority");
+        let local = root.join("config.local.toml");
+        let example = root.join("config.example.toml");
+        fs::write(&example, "[core]\nlog_level = \"INFO\"\n").expect("write example config");
+        assert_eq!(resolve_core_config_path(&root), Some(example.clone()));
+
+        fs::write(&local, "[core]\nlog_level = \"DEBUG\"\n").expect("write local config");
+        assert_eq!(resolve_core_config_path(&root), Some(local));
+
+        fs::remove_dir_all(&root).expect("cleanup temp test dir");
     }
 }

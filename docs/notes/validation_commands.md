@@ -31,6 +31,30 @@ Expected:
 
 - 15 tests pass.
 
+Targeted command da duoc dung gan day cho desktop shell/protocol:
+
+```powershell
+node --test desktop/tests/protocol.test.js
+node --check desktop/src/app.js
+node --check desktop/src/runtime.js
+```
+
+Expected:
+
+- 15 tests pass.
+- syntax check pass cho `app.js` va `runtime.js`.
+
+Targeted Python subset da duoc dung gan day cho runtime/tool flow:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m pytest tests/test_transport.py tests/test_conversation.py tests/test_tools.py
+```
+
+Expected:
+
+- 48 tests pass.
+
 ## Native Rust
 
 ```powershell
@@ -95,7 +119,7 @@ Run the installed app with diagnostic output:
 $diag = Join-Path (Get-Location) ".test-runtime\nsis-diagnostic.json"
 if (Test-Path -LiteralPath $diag) { Remove-Item -LiteralPath $diag -Force }
 $env:YUE_DESKTOP_DIAGNOSTIC_PATH = $diag
-$process = Start-Process -FilePath ".\.test-runtime\nsis-app\yue-desktop.exe" -PassThru
+$process = Start-Process -FilePath ".\.test-runtime\nsis-app\yue-desktop.exe" -PassThru -WindowStyle Hidden
 Start-Sleep -Seconds 8
 Get-Content -Raw $diag
 if (Get-Process -Id $process.Id -ErrorAction SilentlyContinue) { Stop-Process -Id $process.Id -Force }
@@ -109,6 +133,12 @@ Expected:
   - `hasIpc: true`
   - `bridgeLine: "bridge: spawned | core: started"`
   - `stage: "runtime_bootstrap"`
+
+Latest re-check after startup/config rewiring:
+
+- `cargo tauri build --bundles nsis --ci --no-sign` van pass.
+- NSIS-installed app trong lan re-check gan nhat chi tra `{"stage":"scheduled"}`.
+- Nghia la packaged non-dev proof hien chua duoc re-verify xanh; can debug tiep truoc khi danh dau xong path nay.
 
 Cleanup proof:
 

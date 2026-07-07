@@ -7,7 +7,8 @@ from typing import Any, TextIO
 from uuid import uuid4
 
 from .app import YueCore
-from .contracts import CoreEvent
+from .contracts import CoreEvent, PermissionOutcome
+from .tool_catalog import filter_tool_specs_for_role
 
 
 class JsonLineServer:
@@ -36,6 +37,7 @@ class JsonLineServer:
                 self.core.events.subscribe("conversation.*", forward_event),
                 self.core.events.subscribe("desktop.*", forward_event),
                 self.core.events.subscribe("approval.*", forward_event),
+                self.core.events.subscribe("tool.*", forward_event),
             ]
             try:
                 while True:
@@ -68,16 +70,23 @@ class JsonLineServer:
                 result = await self.core.invoke("core.health", {})
                 payload = result.to_dict()
             elif method == "tools.list":
+                provider_role = params.get("provider_role")
                 payload = [
                     {
                         "name": spec.name,
                         "description": spec.description,
+                        "model_description": spec.model_description(),
                         "input_schema": spec.input_schema,
                         "capability": spec.capability.value,
                         "risk": spec.risk.value,
                         "plugin_id": spec.plugin_id,
+                        "output_kind": spec.output_kind.value,
+                        "metadata": spec.runtime_metadata(),
                     }
-                    for spec in self.core.registry.list_specs()
+                    for spec in filter_tool_specs_for_role(
+                        self.core.registry.list_specs(),
+                        str(provider_role) if provider_role is not None else None,
+                    )
                 ]
             elif method == "tools.invoke":
                 result = await self.core.invoke(
@@ -87,6 +96,27 @@ class JsonLineServer:
                     session_id=params.get("session_id"),
                 )
                 payload = result.to_dict()
+            elif method == "tools.invoke_many":
+                calls = params.get("calls", [])
+                if not isinstance(calls, list) or not calls:
+                    raise ValueError("calls must be a non-empty array")
+                requests = [
+                    (
+                        call["name"],
+                        call.get("arguments", {}),
+                    )
+                    for call in calls
+                ]
+                results = await self.core.invoke_many(
+                    requests,
+                    actor=params.get("actor", "ui"),
+                    session_id=params.get("session_id"),
+                    parallel=bool(params.get("parallel", False)),
+                )
+                payload = {
+                    "parallel": bool(params.get("parallel", False)),
+                    "results": [result.to_dict() for result in results],
+                }
             elif method == "tools.cancel":
                 payload = {"cancelled": self.core.executor.cancel(params["request_id"])}
             elif method == "approval.request":
@@ -113,6 +143,58 @@ class JsonLineServer:
                     params["approval_id"],
                     bool(params["approved"]),
                 )
+            elif method == "tool.activity.snapshot":
+                tool_activity = self.core.services.get("core.tool_activity")
+                if tool_activity is None or not hasattr(tool_activity, "snapshot"):
+                    raise RuntimeError("tool activity store is not available")
+                payload = await tool_activity.snapshot()
+            elif method == "permissions.allow_all_cmd.get":
+                grants = self.core.services.get("core.permission_grants")
+                if grants is None or not hasattr(grants, "get"):
+                    raise RuntimeError("permission grant store is not available")
+                session_id = params["session_id"]
+                grant = grants.get(session_id)
+                payload = (
+                    grant.to_dict()
+                    if grant is not None
+                    else {
+                        "session_id": session_id,
+                        "allow_all_cmd": False,
+                        "updated_by": "none",
+                    }
+                )
+            elif method == "permissions.allow_all_cmd.set":
+                grants = self.core.services.get("core.permission_grants")
+                audit = self.core.services.get("core.audit")
+                permissions = self.core.services.get("core.permissions")
+                if grants is None or not hasattr(grants, "set_allow_all_cmd"):
+                    raise RuntimeError("permission grant store is not available")
+                if permissions is None or not hasattr(permissions, "evaluate_allow_all_cmd_grant"):
+                    raise RuntimeError("permission engine is not available")
+                session_id = params["session_id"]
+                allowed = bool(params["allowed"])
+                updated_by = str(params.get("actor", "ui"))
+                decision = permissions.evaluate_allow_all_cmd_grant(
+                    actor=updated_by,
+                    allowed=allowed,
+                )
+                if decision.outcome is not PermissionOutcome.ALLOW:
+                    raise PermissionError(decision.reason)
+                grant = grants.set_allow_all_cmd(
+                    session_id,
+                    allowed,
+                    updated_by=updated_by,
+                )
+                payload = grant.to_dict()
+                if audit is not None:
+                    await audit.write("permission.grant.updated", payload)
+                await self.core.events.publish(
+                    CoreEvent(
+                        "permission.grant.updated",
+                        payload,
+                        correlation_id=session_id,
+                    )
+                )
             elif method == "providers.list":
                 payload = self.core.providers.names()
             elif method == "providers.health":
@@ -138,6 +220,16 @@ class JsonLineServer:
             elif method == "settings.providers.anthropic_messages.update":
                 persist = bool(params.pop("persist", False))
                 payload = await self.core.update_anthropic_messages_settings(
+                    params,
+                    persist=persist,
+                )
+            elif method == "settings.providers.active.get":
+                payload = self.core.active_provider_settings_snapshot()
+            elif method == "settings.providers.active.catalog":
+                payload = await self.core.active_provider_model_catalog(params)
+            elif method == "settings.providers.active.update":
+                persist = bool(params.pop("persist", False))
+                payload = await self.core.update_active_provider_settings(
                     params,
                     persist=persist,
                 )

@@ -51,6 +51,39 @@ export class CoreProtocolClient {
     });
   }
 
+  getToolActivitySnapshot() {
+    return this.#request("tool.activity.snapshot");
+  }
+
+  listTools(options = {}) {
+    return this.#request("tools.list", {
+      provider_role: options.providerRole,
+    });
+  }
+
+  invokeMany(calls, options = {}) {
+    return this.#request("tools.invoke_many", {
+      calls,
+      parallel: Boolean(options.parallel),
+      actor: options.actor || "desktop-ui",
+      session_id: options.sessionId,
+    });
+  }
+
+  getAllowAllCmd(sessionId) {
+    return this.#request("permissions.allow_all_cmd.get", {
+      session_id: sessionId,
+    });
+  }
+
+  setAllowAllCmd(sessionId, allowed, actor = "desktop-ui") {
+    return this.#request("permissions.allow_all_cmd.set", {
+      session_id: sessionId,
+      allowed: Boolean(allowed),
+      actor,
+    });
+  }
+
   createConversation(title = "Yue Desktop") {
     return this.#request("conversations.create", { title });
   }

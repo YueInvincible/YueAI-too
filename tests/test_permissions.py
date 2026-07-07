@@ -7,7 +7,7 @@ from yue_core.contracts import (
     ToolRequest,
     ToolSpec,
 )
-from yue_core.permissions import PermissionEngine
+from yue_core.permissions import PermissionEngine, PermissionGrantStore
 
 
 class AllowApprovalProvider:
@@ -51,8 +51,8 @@ class PermissionTests(unittest.IsolatedAsyncioTestCase):
     async def test_assist_denies_shell_run_for_model(self):
         engine = PermissionEngine("assist", interactive_approval=True)
         decision = await engine.evaluate(
-            ToolRequest("shell.run", {}, actor="model"),
-            ToolSpec("shell.run", "", {}, Capability.SHELL_EXECUTE, RiskLevel.HIGH),
+            ToolRequest("shell_run", {}, actor="model"),
+            ToolSpec("shell_run", "", {}, Capability.SHELL_EXECUTE, RiskLevel.HIGH),
         )
         self.assertEqual(decision.outcome, PermissionOutcome.DENY)
 
@@ -109,6 +109,52 @@ class PermissionTests(unittest.IsolatedAsyncioTestCase):
             session_id="conversation-1",
         )
         self.assertEqual(decision.outcome, PermissionOutcome.ALLOW)
+
+    async def test_observe_allows_ask_user_approval_alias(self):
+        engine = PermissionEngine("observe")
+        decision = await engine.evaluate(
+            ToolRequest("ask_user_approval", {}),
+            ToolSpec("ask_user_approval", "", {}, Capability.CORE_READ, RiskLevel.LOW),
+        )
+        self.assertEqual(decision.outcome, PermissionOutcome.ALLOW)
+
+    async def test_allow_all_cmd_grant_allows_model_shell_in_assist(self):
+        grants = PermissionGrantStore()
+        grants.set_allow_all_cmd("conversation-1", True, updated_by="ui")
+        engine = PermissionEngine(
+            "assist",
+            interactive_approval=False,
+            grant_store=grants,
+        )
+        decision = await engine.evaluate(
+            ToolRequest("shell_run", {}, actor="model", session_id="conversation-1"),
+            ToolSpec("shell_run", "", {}, Capability.SHELL_EXECUTE, RiskLevel.HIGH),
+        )
+        self.assertEqual(decision.outcome, PermissionOutcome.ALLOW)
+
+    async def test_allow_all_cmd_grant_does_not_bypass_observe_profile(self):
+        grants = PermissionGrantStore()
+        grants.set_allow_all_cmd("conversation-1", True, updated_by="ui")
+        engine = PermissionEngine(
+            "observe",
+            interactive_approval=False,
+            grant_store=grants,
+        )
+        decision = await engine.evaluate(
+            ToolRequest("shell.run", {}, actor="model", session_id="conversation-1"),
+            ToolSpec("shell.run", "", {}, Capability.SHELL_EXECUTE, RiskLevel.HIGH),
+        )
+        self.assertEqual(decision.outcome, PermissionOutcome.DENY)
+
+    def test_allow_all_cmd_grant_policy_denies_model_actor(self):
+        engine = PermissionEngine("assist", interactive_approval=False)
+        decision = engine.evaluate_allow_all_cmd_grant(actor="model", allowed=True)
+        self.assertEqual(decision.outcome, PermissionOutcome.DENY)
+
+    def test_allow_all_cmd_grant_policy_denies_observe_profile(self):
+        engine = PermissionEngine("observe", interactive_approval=False)
+        decision = engine.evaluate_allow_all_cmd_grant(actor="desktop-ui", allowed=True)
+        self.assertEqual(decision.outcome, PermissionOutcome.DENY)
 
 
 if __name__ == "__main__":

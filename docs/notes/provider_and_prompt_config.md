@@ -7,8 +7,9 @@ Ghi lai huong core moi cho routing provider va prompt/instruction config.
 ## Uu tien hien tai
 
 - Uu tien cao nhat la hoan thanh core chat/runtime/tooling cho agent.
-- Trong cac local provider, `LM Studio` la path uu tien cao nhat de support va verify.
-- `llama.cpp` van duoc giu trong roadmap, nhung editor rieng cua no de sau va khong duoc chan cac viec core/tooling.
+- Trong cac local provider, local host OpenAI-compatible server tai `http://127.0.0.1:8080/v1` la path uu tien cao nhat de support va verify.
+- Re-check `2026-07-06`: local runtime da duoc verify live voi `llama-server.exe` tren `127.0.0.1:8080`; model dang serve tren may hien tai la `Qwen3-4B-Q5_K_M.gguf`.
+- `LM Studio` la path phu; `llama.cpp` van duoc giu trong roadmap, nhung editor rieng cua no de sau va khong duoc chan cac viec core/tooling.
 
 ## Trang thai da xac nhan
 
@@ -21,6 +22,10 @@ Ghi lai huong core moi cho routing provider va prompt/instruction config.
   - `tool_instruction`
   - `response_instruction`
 - Prompt profile duoc inject thanh `system` message tam thoi luc tao `ModelRequest`.
+- Default `coding_agent` tool instruction hien da nhac model:
+  - uu tien targeted read/search truoc;
+  - co the gom nhieu read-only tool calls trong cung 1 turn neu doc lap;
+  - write/edit/shell nen giu tuan tu tru khi metadata cua tool noi ro co the parallel.
 - Da co plugin `openai.compat` de dang ky nhieu provider trong mot config.
 - Da co plugin `anthropic.messages` de dang ky Claude provider qua Anthropic Messages API.
 - Plugin `llama.cpp` van giu lai, nhung hien tai chi la wrapper mong quanh adapter OpenAI-compatible chung.
@@ -84,6 +89,16 @@ Ghi lai huong core moi cho routing provider va prompt/instruction config.
   - `prompt_profile = "default"` hoac ten profile khac
 - Khai bao profile bang:
   - `[conversation.prompt_profiles.<name>]`
+- `config.example.toml` hien da duoc canh lai de desktop/core startup hop voi huong hien tai:
+  - permission profile `assist`
+  - `interactive_approval = true`
+  - `default_provider = "localhost.chat"`
+  - `plugins.options."llama.cpp".model = "Qwen3-4B-Q5_K_M.gguf"`
+  - route `chat` + `coding_agent` mac dinh -> `localhost.chat`
+- desktop native bridge gio se uu tien nap:
+  - `YUE_CORE_CONFIG`
+  - `config.local.toml`
+  - `config.example.toml`
 
 ## Provider da co duong di ro rang
 
@@ -120,8 +135,9 @@ Ghi lai huong core moi cho routing provider va prompt/instruction config.
 
 ## Viec tiep theo hop ly
 
-1. Chot va verify local path `LM Studio` cho workflow chinh cua agent.
-2. Chot source-of-truth va migration story neu sau nay editor save them nhieu bang config khac.
-3. Can nhac them adapter Responses API rieng neu muon dung sat hon OpenAI cloud feature set.
-4. Them editor cho `llama.cpp` single-provider path, hoac hop nhat ve cung surface, nhung de sau phase core/tooling.
-5. Xem `app_development_roadmap.md` de gan cac viec nay vao phase backend/provider tong the.
+1. Giu `127.0.0.1:8080` la source-of-truth local runtime path cho workflow chinh cua agent cho den khi packaged desktop path on dinh.
+2. Neu server local doi model, uu tien cap nhat config/runtime health cho khop model dang serve that thay vi giu ten cu trong docs.
+3. Chot source-of-truth va migration story neu sau nay editor save them nhieu bang config khac.
+4. Can nhac them adapter Responses API rieng neu muon dung sat hon OpenAI cloud feature set.
+5. Them editor cho `llama.cpp` single-provider path, hoac hop nhat ve cung surface, nhung de sau phase core/tooling.
+6. Xem `app_development_roadmap.md` de gan cac viec nay vao phase backend/provider tong the.

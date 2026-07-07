@@ -1,5 +1,5 @@
 (function () {
-  const DEFAULT_TIMEOUT_MS = 15000;
+  const DEFAULT_TIMEOUT_MS = 120000;
   const sessionId = "desktop-preview";
 
   function createMessage(role, text) {
@@ -58,6 +58,39 @@
       return this.#request("approval.respond", {
         approval_id: approvalId,
         approved: Boolean(approved),
+      });
+    }
+
+    getToolActivitySnapshot() {
+      return this.#request("tool.activity.snapshot");
+    }
+
+    listTools(options = {}) {
+      return this.#request("tools.list", {
+        provider_role: options.providerRole,
+      });
+    }
+
+    invokeMany(calls, options = {}) {
+      return this.#request("tools.invoke_many", {
+        calls,
+        parallel: Boolean(options.parallel),
+        actor: options.actor || "desktop-ui",
+        session_id: options.sessionId,
+      });
+    }
+
+    getAllowAllCmd(currentSessionId) {
+      return this.#request("permissions.allow_all_cmd.get", {
+        session_id: currentSessionId,
+      });
+    }
+
+    setAllowAllCmd(currentSessionId, allowed, actor = "desktop-ui") {
+      return this.#request("permissions.allow_all_cmd.set", {
+        session_id: currentSessionId,
+        allowed: Boolean(allowed),
+        actor,
       });
     }
 
@@ -129,6 +162,26 @@
       return this.updateAnthropicMessagesSettings(payload, { persist: true });
     }
 
+    getActiveProviderSettings() {
+      return this.#request("settings.providers.active.get");
+    }
+
+    getActiveProviderCatalog(payload = {}) {
+      return this.#request("settings.providers.active.catalog", payload);
+    }
+
+    updateActiveProviderSettings(payload, options = {}) {
+      const params = { ...payload };
+      if (options.persist) {
+        params.persist = true;
+      }
+      return this.#request("settings.providers.active.update", params);
+    }
+
+    saveActiveProviderSettings(payload) {
+      return this.updateActiveProviderSettings(payload, { persist: true });
+    }
+
     #request(method, params = {}) {
       return this.transport.request({ method, params, timeoutMs: DEFAULT_TIMEOUT_MS });
     }
@@ -156,8 +209,14 @@
       providerHealth: [],
       providerHealthSummary: "providers: unavailable",
       availableProviders: [],
+      activeDrawer: null,
       conversationSettings: null,
       settingsStatus: "Runtime only",
+      activeProviderSettings: null,
+      activeProviderDraft: null,
+      activeProviderDraftDirty: false,
+      activeProviderCatalog: null,
+      activeProviderStatus: "Active provider runtime only",
       openaiCompatibleSettings: null,
       providerConfigStatus: "Provider config runtime only",
       selectedProviderConfigName: "",
@@ -166,6 +225,18 @@
       selectedAnthropicConfigName: "",
       pendingApprovals: [],
       approvalStatus: "No pending approvals",
+      toolsCatalog: [],
+      toolCatalogStatus: "Tool catalog unavailable",
+      allowAllCmd: false,
+      allowAllCmdUpdatedBy: "none",
+      allowAllCmdStatus: "Session shell grant disabled",
+      parallelInspectStatus: "Parallel inspect idle",
+      parallelInspectResults: [],
+      toolActivity: [],
+      toolActivityStatus: "No active tool run",
+      inspectorSelection: null,
+      collapsedRunIds: [],
+      collapsedInspectorRunIds: [],
     };
   }
 
@@ -187,6 +258,25 @@
       ...state,
       messages: [...state.messages, message],
     };
+  }
+
+  function linkLatestUserMessageToRun(state, runId, conversationId = null) {
+    if (!runId) {
+      return state;
+    }
+    let linked = false;
+    const messages = [...state.messages].reverse().map((message) => {
+      if (!linked && message.role === "user" && !message.run_id) {
+        linked = true;
+        return {
+          ...message,
+          run_id: runId,
+          conversation_id: conversationId || message.conversation_id || null,
+        };
+      }
+      return message;
+    }).reverse();
+    return linked ? { ...state, messages } : state;
   }
 
   function setConversationId(state, conversationId) {
@@ -239,10 +329,96 @@
     };
   }
 
+  function applyActiveDrawer(state, activeDrawer) {
+    return {
+      ...state,
+      activeDrawer: activeDrawer || null,
+    };
+  }
+
   function applySettingsStatus(state, settingsStatus) {
     return {
       ...state,
       settingsStatus: settingsStatus || state.settingsStatus,
+    };
+  }
+
+  function applyActiveProviderSettings(state, activeProviderSettings) {
+    const nextDraft =
+      state.activeProviderDraftDirty && state.activeProviderDraft
+        ? JSON.parse(JSON.stringify(state.activeProviderDraft))
+        : createActiveProviderDraft(
+            activeProviderSettings?.active_provider || null,
+            activeProviderSettings?.provider_options || [],
+          );
+    return {
+      ...state,
+      activeProviderSettings: activeProviderSettings
+        ? JSON.parse(JSON.stringify(activeProviderSettings))
+        : null,
+      activeProviderDraft: nextDraft,
+    };
+  }
+
+  function applyActiveProviderStatus(state, activeProviderStatus) {
+    return {
+      ...state,
+      activeProviderStatus: activeProviderStatus || state.activeProviderStatus,
+    };
+  }
+
+  function applyActiveProviderDraft(state, activeProviderDraft, options = {}) {
+    return {
+      ...state,
+      activeProviderDraft: activeProviderDraft
+        ? JSON.parse(JSON.stringify(activeProviderDraft))
+        : null,
+      activeProviderDraftDirty:
+        options.dirty !== undefined ? Boolean(options.dirty) : state.activeProviderDraftDirty,
+    };
+  }
+
+  function applyActiveProviderCatalog(state, activeProviderCatalog) {
+    return {
+      ...state,
+      activeProviderCatalog: activeProviderCatalog
+        ? JSON.parse(JSON.stringify(activeProviderCatalog))
+        : null,
+    };
+  }
+
+  function createActiveProviderDraft(snapshot, providerOptions = []) {
+    if (snapshot) {
+      return {
+        kind: snapshot.kind || "llama.cpp",
+        provider_name: snapshot.provider_name || "",
+        model: snapshot.model || "",
+        api_key_env: snapshot.api_key_env || "",
+        host: snapshot.host || "",
+        port: snapshot.port || "",
+        base_url: snapshot.base_url || "",
+        anthropic_version: snapshot.anthropic_version || "2023-06-01",
+        timeout_seconds: snapshot.timeout_seconds ?? 120,
+        health_timeout_seconds: snapshot.health_timeout_seconds ?? 5,
+        temperature: snapshot.temperature ?? 0.7,
+        max_tokens: snapshot.max_tokens ?? 1024,
+      };
+    }
+    const fallback = providerOptions[0] || {};
+    const kind = fallback.kind || "llama.cpp";
+    return {
+      kind,
+      provider_name: fallback.default_provider_name || `${kind}.chat`,
+      model: "",
+      api_key_env: fallback.default_api_key_env || "",
+      host: fallback.default_host || "",
+      port: fallback.default_port || "",
+      base_url: "",
+      anthropic_version: "2023-06-01",
+      timeout_seconds: 120,
+      health_timeout_seconds: 5,
+      temperature: 0.7,
+      max_tokens: 1024,
     };
   }
 
@@ -343,42 +519,346 @@
     };
   }
 
+  function applyToolsCatalog(state, toolsCatalog = []) {
+    const items = Array.isArray(toolsCatalog)
+      ? JSON.parse(JSON.stringify(toolsCatalog))
+      : [];
+    return {
+      ...state,
+      toolsCatalog: items,
+      toolCatalogStatus:
+        items.length > 0
+          ? `${items.length} tool${items.length === 1 ? "" : "s"} loaded`
+          : "Tool catalog unavailable",
+    };
+  }
+
+  function applyToolCatalogStatus(state, toolCatalogStatus) {
+    return {
+      ...state,
+      toolCatalogStatus: toolCatalogStatus || state.toolCatalogStatus,
+    };
+  }
+
+  function applyAllowAllCmdGrant(state, grant) {
+    const allowed = Boolean(grant?.allow_all_cmd);
+    const updatedBy = grant?.updated_by || "none";
+    return {
+      ...state,
+      allowAllCmd: allowed,
+      allowAllCmdUpdatedBy: updatedBy,
+      allowAllCmdStatus: allowed
+        ? `Session shell grant enabled by ${updatedBy}`
+        : "Session shell grant disabled",
+    };
+  }
+
+  function applyAllowAllCmdStatus(state, allowAllCmdStatus) {
+    return {
+      ...state,
+      allowAllCmdStatus: allowAllCmdStatus || state.allowAllCmdStatus,
+    };
+  }
+
+  function applyParallelInspectStatus(state, parallelInspectStatus) {
+    return {
+      ...state,
+      parallelInspectStatus: parallelInspectStatus || state.parallelInspectStatus,
+    };
+  }
+
+  function applyParallelInspectResults(state, parallelInspectResults = []) {
+    return {
+      ...state,
+      parallelInspectResults: Array.isArray(parallelInspectResults)
+        ? JSON.parse(JSON.stringify(parallelInspectResults))
+        : [],
+    };
+  }
+
+  function applyToolActivityStatus(state, toolActivityStatus) {
+    return {
+      ...state,
+      toolActivityStatus: toolActivityStatus || state.toolActivityStatus,
+    };
+  }
+
+  function applyInspectorSelection(state, selection) {
+    return {
+      ...state,
+      inspectorSelection: selection ? JSON.parse(JSON.stringify(selection)) : null,
+    };
+  }
+
+  function toggleRunGroupCollapsed(state, runId) {
+    if (!runId) {
+      return state;
+    }
+    const current = new Set(state.collapsedRunIds || []);
+    if (current.has(runId)) {
+      current.delete(runId);
+    } else {
+      current.add(runId);
+    }
+    return {
+      ...state,
+      collapsedRunIds: [...current],
+    };
+  }
+
+  function expandRunGroup(state, runId) {
+    if (!runId || !(state.collapsedRunIds || []).includes(runId)) {
+      return state;
+    }
+    return {
+      ...state,
+      collapsedRunIds: (state.collapsedRunIds || []).filter((item) => item !== runId),
+    };
+  }
+
+  function toggleInspectorRunGroupCollapsed(state, runId) {
+    if (!runId) {
+      return state;
+    }
+    const current = new Set(state.collapsedInspectorRunIds || []);
+    if (current.has(runId)) {
+      current.delete(runId);
+    } else {
+      current.add(runId);
+    }
+    return {
+      ...state,
+      collapsedInspectorRunIds: [...current],
+    };
+  }
+
+  function expandInspectorRunGroup(state, runId) {
+    if (!runId || !(state.collapsedInspectorRunIds || []).includes(runId)) {
+      return state;
+    }
+    return {
+      ...state,
+      collapsedInspectorRunIds: (state.collapsedInspectorRunIds || []).filter((item) => item !== runId),
+    };
+  }
+
+  function applyToolActivitySnapshot(state, snapshot = {}) {
+    const items = Array.isArray(snapshot?.items)
+      ? JSON.parse(JSON.stringify(snapshot.items))
+      : [];
+    return {
+      ...state,
+      toolActivity: items,
+      toolActivityStatus:
+        snapshot?.status || (items.length > 0 ? state.toolActivityStatus : "No active tool run"),
+    };
+  }
+
+  function applyToolActivityEvent(state, event = {}) {
+    const topic = event?.topic;
+    const payload = event?.payload || {};
+    if (!topic) {
+      return state;
+    }
+    if (topic === "conversation.run.started") {
+      return {
+        ...state,
+        toolActivity: [],
+        toolActivityStatus: "Conversation run started",
+      };
+    }
+    const current = Array.isArray(state.toolActivity) ? [...state.toolActivity] : [];
+    if (topic === "conversation.tool.requested") {
+      const toolCall = payload.tool_call || {};
+      return {
+        ...state,
+        toolActivity: [
+          {
+            run_id: payload.run_id || null,
+            conversation_id: payload.conversation_id || null,
+            tool_call_id: toolCall.id || null,
+            request_id: payload.request_id || null,
+            tool_name: toolCall.name || "unknown tool",
+            arguments: toolCall.arguments || {},
+            status: "requested",
+            output: null,
+            error: null,
+            approval_id: null,
+          },
+          ...current,
+        ].slice(0, 12),
+        toolActivityStatus: `Requested ${toolCall.name || "tool"}`,
+      };
+    }
+    if (topic === "tool.started") {
+      const next = current.map((item) =>
+        item.tool_call_id === payload.tool_call_id
+          ? {
+              ...item,
+              request_id: payload.request_id || item.request_id,
+              status: "running",
+            }
+          : item,
+      );
+      return {
+        ...state,
+        toolActivity: next,
+        toolActivityStatus: `Running ${payload.tool || "tool"}`,
+      };
+    }
+    if (topic === "approval.pending") {
+      const next = current.map((item) =>
+        item.request_id && item.request_id === payload.request_id
+          ? {
+              ...item,
+              approval_id: payload.approval_id || null,
+              status: "waiting_approval",
+              error: payload.reason || item.error,
+            }
+          : item,
+      );
+      return {
+        ...state,
+        toolActivity: next,
+        toolActivityStatus: `Approval requested for ${payload.tool_name || "tool"}`,
+      };
+    }
+    if (topic === "approval.responded") {
+      const next = current.map((item) =>
+        item.request_id && item.request_id === payload.request_id
+          ? {
+              ...item,
+              approval_id: payload.approval_id || item.approval_id,
+              status: payload.approved ? "approved_pending_run" : "denied_by_user",
+              error: payload.approved ? null : "Denied by user approval",
+            }
+          : item,
+      );
+      return {
+        ...state,
+        toolActivity: next,
+        toolActivityStatus: payload.approved
+          ? `Approved ${payload.tool_name || "tool"}`
+          : `Denied ${payload.tool_name || "tool"}`,
+      };
+    }
+    if (topic === "tool.finished") {
+      const next = current.map((item) =>
+        item.request_id === payload.request_id || item.tool_call_id === payload.tool_call_id
+          ? {
+              ...item,
+              request_id: payload.request_id || item.request_id,
+              status:
+                payload.status === "denied"
+                  ? classifyDeniedToolStatus(item, payload)
+                  : payload.status || item.status,
+              output: payload.output ?? item.output,
+              error: payload.error || item.error,
+            }
+          : item,
+      );
+      return {
+        ...state,
+        toolActivity: next,
+        toolActivityStatus: `${payload.tool_name || payload.tool || "Tool"} ${payload.status || "finished"}`,
+      };
+    }
+    if (topic === "conversation.tool.completed") {
+      const next = current.map((item) =>
+        item.tool_call_id === payload.tool_call_id
+          ? {
+              ...item,
+              status: payload.status || item.status,
+            }
+          : item,
+      );
+      return {
+        ...state,
+        toolActivity: next,
+        toolActivityStatus: `${payload.tool || "Tool"} ${payload.status || "completed"}`,
+      };
+    }
+    if (topic === "conversation.run.failed") {
+      return {
+        ...state,
+        toolActivityStatus: `Conversation run failed: ${payload.error || "unknown error"}`,
+      };
+    }
+    if (topic === "conversation.run.completed") {
+      return {
+        ...state,
+        toolActivityStatus:
+          current.length > 0 ? "Conversation run completed" : state.toolActivityStatus,
+      };
+    }
+    return state;
+  }
+
+  function classifyDeniedToolStatus(item, payload) {
+    const error = String(payload?.error || item?.error || "").toLowerCase();
+    if (item?.approval_id || error.includes("user denied")) {
+      return "denied_by_user";
+    }
+    return "denied_by_profile";
+  }
+
   function applyCoreEvent(state, event = {}) {
     const topic = event?.topic;
     const payload = event?.payload || {};
+    const withToolActivity = applyToolActivityEvent(state, event);
+
+    if (
+      topic === "tool.finished" &&
+      (payload.request_id || payload.tool_call_id || payload.run_id)
+    ) {
+      return appendToolResultMessage(withToolActivity, payload);
+    }
 
     if (topic === "desktop.state.changed" && payload.state) {
-      return applyDesktopSnapshot(state, payload.state);
+      return applyDesktopSnapshot(withToolActivity, payload.state);
     }
 
     if (topic === "conversation.delta" && typeof payload.text === "string") {
-      return appendAssistantDelta(state, payload.text);
+      return appendAssistantDelta(
+        withToolActivity,
+        payload.text,
+        payload.run_id || null,
+        payload.conversation_id || null,
+      );
     }
 
     if (topic === "conversation.run.completed") {
-      return finalizeAssistantMessage(state, payload.message?.content || "");
+      return finalizeAssistantMessage(
+        withToolActivity,
+        payload.message?.content || "",
+        payload,
+      );
     }
 
     if (topic === "conversation.run.failed" || topic === "conversation.run.cancelled") {
       return {
-        ...state,
+        ...withToolActivity,
         activeAssistantMessageId: null,
       };
     }
 
     if (topic === "approval.pending") {
-      return applyPendingApprovals(state, [...state.pendingApprovals, payload]);
+      return applyPendingApprovals(withToolActivity, [...state.pendingApprovals, payload]);
     }
 
     if (topic === "approval.responded" && payload.approval_id) {
-      return applyApprovalResponse(state, payload.approval_id);
+      return applyApprovalResponse(withToolActivity, payload.approval_id);
     }
 
-    return state;
+    if (topic === "permission.grant.updated") {
+      return applyAllowAllCmdGrant(withToolActivity, payload);
+    }
+
+    return withToolActivity;
   }
 
-  function appendAssistantDelta(state, text) {
-    const messageId = state.activeAssistantMessageId || `assistant-live-${Date.now()}`;
+  function appendAssistantDelta(state, text, runId = null, conversationId = null) {
+    const messageId = state.activeAssistantMessageId || `assistant-live-${runId || Date.now()}`;
     const existingIndex = state.messages.findIndex((message) => message.id === messageId);
 
     if (existingIndex >= 0) {
@@ -387,6 +867,8 @@
           ? {
               ...message,
               text: `${message.text}${text}`,
+              run_id: runId || message.run_id || null,
+              conversation_id: conversationId || message.conversation_id || null,
             }
           : message,
       );
@@ -405,13 +887,18 @@
           id: messageId,
           role: "assistant",
           text,
+          kind: "assistant_turn",
+          run_id: runId,
+          conversation_id: conversationId,
         },
       ],
       activeAssistantMessageId: messageId,
     };
   }
 
-  function finalizeAssistantMessage(state, content) {
+  function finalizeAssistantMessage(state, content, payload = {}) {
+    const runId = payload.run_id || payload.message?.metadata?.run_id || null;
+    const conversationId = payload.conversation_id || payload.message?.conversation_id || null;
     if (!state.activeAssistantMessageId) {
       if (!content) {
         return state;
@@ -420,6 +907,9 @@
         id: `assistant-final-${Date.now()}`,
         role: "assistant",
         text: content,
+        kind: "assistant_turn",
+        run_id: runId,
+        conversation_id: conversationId,
       });
     }
 
@@ -428,6 +918,9 @@
         ? {
             ...message,
             text: content || message.text,
+            kind: "assistant_turn",
+            run_id: runId || message.run_id || null,
+            conversation_id: conversationId || message.conversation_id || null,
           }
         : message,
     );
@@ -436,6 +929,54 @@
       messages,
       activeAssistantMessageId: null,
     };
+  }
+
+  function appendToolResultMessage(state, payload = {}) {
+    const toolCallId = payload.tool_call_id || null;
+    const requestId = payload.request_id || null;
+    const messageId = `tool-result-${toolCallId || requestId || Date.now()}`;
+    const text = formatToolResultText(payload);
+    const existingIndex = state.messages.findIndex((message) => message.id === messageId);
+    const nextMessage = {
+      id: messageId,
+      role: "tool",
+      kind: "tool_result",
+      text,
+      run_id: payload.run_id || null,
+      conversation_id: payload.conversation_id || null,
+      request_id: requestId,
+      tool_call_id: toolCallId,
+      tool_name: payload.tool_name || payload.tool || "tool",
+      status: payload.status || "finished",
+      output: payload.output ?? null,
+      error: payload.error || null,
+    };
+    if (existingIndex >= 0) {
+      return {
+        ...state,
+        messages: state.messages.map((message) =>
+          message.id === messageId ? { ...message, ...nextMessage } : message,
+        ),
+      };
+    }
+    return appendMessage(state, nextMessage);
+  }
+
+  function formatToolResultText(payload = {}) {
+    if (payload.error) {
+      return payload.error;
+    }
+    if (payload.output == null) {
+      return `${payload.tool_name || payload.tool || "tool"} ${payload.status || "finished"}`;
+    }
+    if (typeof payload.output === "string") {
+      return payload.output;
+    }
+    try {
+      return JSON.stringify(payload.output, null, 2);
+    } catch {
+      return String(payload.output);
+    }
   }
 
   function now() {
@@ -497,11 +1038,11 @@
     const state = defaultMockState();
     let conversationCounter = 0;
     let conversationSettings = {
-      default_provider: "fake.echo",
+      default_provider: "localhost.chat",
       routes: {
-        chat: { provider: "fake.echo", prompt_profile: "default" },
+        chat: { provider: "localhost.chat", prompt_profile: "default" },
         coding_agent: {
-          provider: "fake.echo",
+          provider: "localhost.chat",
           prompt_profile: "coding_agent",
         },
       },
@@ -523,19 +1064,67 @@
     let openaiCompatibleSettings = {
       providers: [
         {
-          provider_name: "ollama.chat",
-          backend: "ollama",
-          base_url: "http://127.0.0.1:11434/v1",
-          model: "qwen2.5:7b-instruct",
+          provider_name: "localhost.chat",
+          backend: "llama.cpp",
+          base_url: "http://127.0.0.1:8080/v1",
+          model: "Qwen3-4B-Q5_K_M.gguf",
           api_key_env: "",
           timeout_seconds: 120,
           health_timeout_seconds: 5,
-          temperature: 0.6,
-          max_tokens: 1024,
+          temperature: 0.7,
+          max_tokens: 2048,
           headers: {},
         },
       ],
     };
+    function buildActiveProviderSettings() {
+      const provider = openaiCompatibleSettings.providers[0] || {
+        provider_name: "localhost.chat",
+        backend: "llama.cpp",
+        base_url: "http://127.0.0.1:8080",
+        model: "Qwen3-4B-Q5_K_M.gguf",
+        api_key_env: "",
+        timeout_seconds: 120,
+        health_timeout_seconds: 5,
+        temperature: 0.7,
+        max_tokens: 2048,
+        headers: {},
+      };
+      const kind = provider.backend === "anthropic" ? "anthropic" : provider.backend;
+      return {
+        single_provider_mode: true,
+        active_provider: {
+          kind,
+          label: kind === "llama.cpp" ? "Local llama.cpp" : provider.backend,
+          family: ["llama.cpp", "ollama", "lmstudio", "custom"].includes(kind) ? "local" : "cloud",
+          plugin_id: kind === "anthropic" ? "anthropic.messages" : "openai.compat",
+          provider_name: provider.provider_name,
+          backend: provider.backend,
+          base_url: provider.base_url,
+          host: "127.0.0.1",
+          port: 8080,
+          model: provider.model,
+          api_key_env: provider.api_key_env || "",
+          timeout_seconds: provider.timeout_seconds,
+          health_timeout_seconds: provider.health_timeout_seconds,
+          temperature: provider.temperature,
+          max_tokens: provider.max_tokens,
+          headers: provider.headers || {},
+          anthropic_version: provider.anthropic_version || "2023-06-01",
+        },
+        provider_options: [
+          { kind: "llama.cpp", label: "Local llama.cpp" },
+          { kind: "ollama", label: "Ollama" },
+          { kind: "lmstudio", label: "LM Studio" },
+          { kind: "custom", label: "Custom OpenAI-compatible" },
+          { kind: "openai", label: "OpenAI" },
+          { kind: "google", label: "Google AI" },
+          { kind: "openrouter", label: "OpenRouter" },
+          { kind: "anthropic", label: "Anthropic" },
+        ],
+        conversation: JSON.parse(JSON.stringify(conversationSettings)),
+      };
+    }
     let anthropicMessagesSettings = {
       providers: [
         {
@@ -566,6 +1155,55 @@
           command: "git push origin feature/desktop-bridge",
         },
         created_at: now(),
+      },
+    ];
+    let allowAllCmdGrant = {
+      session_id: "desktop-preview",
+      allow_all_cmd: false,
+      updated_by: "none",
+    };
+    const toolCatalog = [
+      {
+        name: "workspace.read",
+        description: "Read a UTF-8 workspace file with line-range metadata.",
+        input_schema: {},
+        capability: "file.read",
+        risk: "low",
+        plugin_id: "core",
+        output_kind: "file_content",
+        metadata: {
+          output_kind: "file_content",
+          parallel_safe: true,
+          mutates_state: false,
+        },
+      },
+      {
+        name: "workspace.grep",
+        description: "Search workspace file contents by literal string or regex.",
+        input_schema: {},
+        capability: "file.read",
+        risk: "low",
+        plugin_id: "core",
+        output_kind: "structured",
+        metadata: {
+          output_kind: "structured",
+          parallel_safe: true,
+          mutates_state: false,
+        },
+      },
+      {
+        name: "shell.run",
+        description: "Run a shell command with explicit cwd, timeout, and risk metadata.",
+        input_schema: {},
+        capability: "shell.execute",
+        risk: "high",
+        plugin_id: "core",
+        output_kind: "command_output",
+        metadata: {
+          output_kind: "command_output",
+          parallel_safe: false,
+          mutates_state: true,
+        },
       },
     ];
 
@@ -625,19 +1263,63 @@
               approved: Boolean(params.approved),
             };
           }
+          case "tools.list":
+            return JSON.parse(JSON.stringify(toolCatalog));
+          case "tools.invoke_many":
+            return {
+              parallel: Boolean(params.parallel),
+              results: (params.calls || []).map((call, index) => ({
+                request_id: `mock-batch-${index + 1}`,
+                tool_name: call.name,
+                status: "succeeded",
+                output:
+                  call.name === "workspace.read"
+                    ? {
+                        path: call.arguments?.path || "",
+                        content: `Mock content for ${call.arguments?.path || "unknown path"}`,
+                        start_line: call.arguments?.start_line || 1,
+                        end_line: call.arguments?.end_line || 1,
+                        total_lines: 1,
+                        returned_lines: 1,
+                        truncated: false,
+                      }
+                    : {
+                        ok: true,
+                      },
+                error: null,
+              })),
+            };
+          case "permissions.allow_all_cmd.get":
+            if (params.session_id !== allowAllCmdGrant.session_id) {
+              return {
+                session_id: params.session_id,
+                allow_all_cmd: false,
+                updated_by: "none",
+              };
+            }
+            return JSON.parse(JSON.stringify(allowAllCmdGrant));
+          case "permissions.allow_all_cmd.set":
+            allowAllCmdGrant = {
+              session_id: params.session_id,
+              allow_all_cmd: Boolean(params.allowed),
+              updated_by: params.actor || "desktop-ui",
+            };
+            return JSON.parse(JSON.stringify(allowAllCmdGrant));
           case "providers.list":
             return [
-              "fake.echo",
               ...openaiCompatibleSettings.providers.map((item) => item.provider_name),
               ...anthropicMessagesSettings.providers.map((item) => item.provider_name),
             ];
           case "providers.health":
             return [
               {
-                provider: "fake.echo",
+                provider: "localhost.chat",
                 ok: true,
                 reachable: true,
-                backend: "fake",
+                backend: "llama.cpp",
+                model: "Qwen3-4B-Q5_K_M.gguf",
+                model_available: true,
+                models: ["Qwen3-4B-Q5_K_M.gguf"],
               },
             ];
           case "settings.conversation.get":
@@ -667,6 +1349,85 @@
               ),
             );
             return JSON.parse(JSON.stringify(anthropicMessagesSettings));
+          case "settings.providers.active.get":
+            return JSON.parse(JSON.stringify(buildActiveProviderSettings()));
+          case "settings.providers.active.catalog": {
+            const next = JSON.parse(JSON.stringify((params && params.provider) || {}));
+            const kind = String(next.kind || next.backend || "llama.cpp");
+            const modelsByKind = {
+              "llama.cpp": ["Qwen3-4B-Q5_K_M.gguf"],
+              ollama: ["qwen2.5:7b-instruct", "qwen2.5-coder:7b"],
+              lmstudio: ["openai/gpt-oss-20b", "qwen2.5-coder-7b-instruct"],
+              custom: ["custom-model"],
+              openai: ["gpt-4.1-mini", "gpt-4.1"],
+              google: ["gemini-2.5-flash", "gemini-2.5-pro"],
+              openrouter: ["openai/gpt-4.1-mini", "anthropic/claude-sonnet-4"],
+              anthropic: ["claude-sonnet-4-20250514", "claude-3-7-sonnet-latest"],
+            };
+            const models = modelsByKind[kind] || [];
+            return {
+              kind,
+              provider_name: next.provider_name || `${kind}.chat`,
+              models,
+              selected_model: next.model || models[0] || "",
+              reachable: true,
+              ok: true,
+              error: null,
+              auto_selected: !next.model && Boolean(models[0]),
+            };
+          }
+          case "settings.providers.active.update": {
+            const next = JSON.parse(
+              JSON.stringify(
+                (params && params.provider) || {},
+              ),
+            );
+            const kind = String(next.kind || next.backend || "llama.cpp");
+            const backend = kind === "anthropic" ? "anthropic" : kind;
+            const baseUrl = next.base_url || (
+              kind === "llama.cpp"
+                ? `http://${next.host || "127.0.0.1"}:${next.port || 8080}`
+                : ["ollama", "lmstudio", "custom"].includes(kind)
+                  ? `http://${next.host || "127.0.0.1"}:${next.port || (kind === "ollama" ? 11434 : kind === "lmstudio" ? 1234 : 8080)}/v1`
+                  : kind === "anthropic"
+                    ? "https://api.anthropic.com"
+                    : kind === "google"
+                      ? "https://generativelanguage.googleapis.com/v1beta/openai"
+                      : kind === "openrouter"
+                        ? "https://openrouter.ai/api/v1"
+                        : "https://api.openai.com/v1"
+            );
+            const provider = {
+              provider_name: next.provider_name || `${kind}.chat`,
+              backend,
+              base_url: baseUrl,
+              model: next.model || "mock-model",
+              api_key_env: next.api_key_env || "",
+              timeout_seconds: Number(next.timeout_seconds || 120),
+              health_timeout_seconds: Number(next.health_timeout_seconds || 5),
+              temperature: Number(next.temperature || 0.7),
+              max_tokens: Number(next.max_tokens || 1024),
+              headers: {},
+            };
+            if (kind === "anthropic") {
+              anthropicMessagesSettings = {
+                providers: [
+                  {
+                    ...provider,
+                    anthropic_version: next.anthropic_version || "2023-06-01",
+                  },
+                ],
+              };
+            } else {
+              openaiCompatibleSettings = {
+                providers: [provider],
+              };
+            }
+            conversationSettings.default_provider = provider.provider_name;
+            conversationSettings.routes.chat.provider = provider.provider_name;
+            conversationSettings.routes.coding_agent.provider = provider.provider_name;
+            return JSON.parse(JSON.stringify(buildActiveProviderSettings()));
+          }
           case "conversations.create":
             conversationCounter += 1;
             return { id: `mock-conversation-${conversationCounter}` };
@@ -801,6 +1562,40 @@
   const bridgeLine = document.querySelector("#bridge-line");
   const providerLine = document.querySelector("#provider-line");
   const consolePanel = document.querySelector("#console-panel");
+  const overviewSessionKicker = document.querySelector("#overview-session-kicker");
+  const overviewRuntimeSummary = document.querySelector("#overview-runtime-summary");
+  const overviewProviderSummary = document.querySelector("#overview-provider-summary");
+  const overviewActivitySummary = document.querySelector("#overview-activity-summary");
+  const overviewBridgePending = document.querySelector("#overview-bridge-pending");
+  const overviewBridgeEvents = document.querySelector("#overview-bridge-events");
+  const overviewMessageCount = document.querySelector("#overview-message-count");
+  const overviewApprovalCount = document.querySelector("#overview-approval-count");
+  const overviewBandBridgeNote = document.querySelector("#overview-band-bridge-note");
+  const activeProviderStatusLine = document.querySelector("#active-provider-status-line");
+  const activeProviderRuntimeLine = document.querySelector("#active-provider-runtime-line");
+  const activeProviderForm = document.querySelector("#active-provider-form");
+  const activeProviderSaveButton = document.querySelector("#active-provider-save-button");
+  const activeProviderKindSelect = document.querySelector("#active-provider-kind-select");
+  const activeProviderNameInput = document.querySelector("#active-provider-name-input");
+  const activeProviderModelInput = document.querySelector("#active-provider-model-input");
+  const activeProviderModelShell = document.querySelector("#active-provider-model-shell");
+  const activeProviderModelRefreshButton = document.querySelector("#active-provider-model-refresh-button");
+  const activeProviderModelHint = document.querySelector("#active-provider-model-hint");
+  const activeProviderApiKeyEnvInput = document.querySelector("#active-provider-api-key-env-input");
+  const activeProviderHostInput = document.querySelector("#active-provider-host-input");
+  const activeProviderPortInput = document.querySelector("#active-provider-port-input");
+  const activeProviderBaseUrlInput = document.querySelector("#active-provider-base-url-input");
+  const activeProviderAnthropicVersionInput = document.querySelector("#active-provider-anthropic-version-input");
+  const activeProviderTimeoutInput = document.querySelector("#active-provider-timeout-input");
+  const activeProviderHealthTimeoutInput = document.querySelector("#active-provider-health-timeout-input");
+  const activeProviderTemperatureInput = document.querySelector("#active-provider-temperature-input");
+  const activeProviderMaxTokensInput = document.querySelector("#active-provider-max-tokens-input");
+  const activeProviderLocalFields = document.querySelector("#active-provider-local-fields");
+  const activeProviderAnthropicFields = document.querySelector("#active-provider-anthropic-fields");
+  const configScopeSelect = document.querySelector("#config-scope-select");
+  const routingConfigBlock = document.querySelector("#routing-config-block");
+  const openaiConfigBlock = document.querySelector("#openai-config-block");
+  const anthropicConfigBlock = document.querySelector("#anthropic-config-block");
   const providerStatusList = document.querySelector("#provider-status-list");
   const settingsStatusLine = document.querySelector("#settings-status-line");
   const settingsForm = document.querySelector("#settings-form");
@@ -841,8 +1636,24 @@
   const anthropicMaxTokensInput = document.querySelector("#anthropic-max-tokens-input");
   const anthropicPresetButtons = document.querySelectorAll("[data-anthropic-preset]");
   const providerOptions = document.querySelector("#provider-options");
-  const approvalStatusLine = document.querySelector("#approval-status-line");
-  const approvalList = document.querySelector("#approval-list");
+  const runInspectorStatusLine = document.querySelector("#run-inspector-status-line");
+  const runInspectorList = document.querySelector("#run-inspector-list");
+  const opsDrawer = document.querySelector("#ops-drawer");
+  const configDrawer = document.querySelector("#config-drawer");
+  const opsDrawerButton = document.querySelector("#ops-drawer-button");
+  const configDrawerButton = document.querySelector("#config-drawer-button");
+  const consoleDrawerBackdrop = document.querySelector("#console-drawer-backdrop");
+  const drawerCloseButtons = document.querySelectorAll("[data-close-drawer]");
+  const allowAllCmdStatusLine = document.querySelector("#allow-all-cmd-status-line");
+  const allowAllCmdToggle = document.querySelector("#allow-all-cmd-toggle");
+  const parallelInspectStatusLine = document.querySelector("#parallel-inspect-status-line");
+  const parallelInspectForm = document.querySelector("#parallel-inspect-form");
+  const parallelInspectPathsInput = document.querySelector("#parallel-inspect-paths-input");
+  const parallelInspectStartLineInput = document.querySelector("#parallel-inspect-start-line-input");
+  const parallelInspectEndLineInput = document.querySelector("#parallel-inspect-end-line-input");
+  const parallelInspectResults = document.querySelector("#parallel-inspect-results");
+  const toolCatalogStatusLine = document.querySelector("#tool-catalog-status-line");
+  const toolCatalogList = document.querySelector("#tool-catalog-list");
   const defaultProviderInput = document.querySelector("#default-provider-input");
   const chatProviderInput = document.querySelector("#chat-provider-input");
   const chatProfileInput = document.querySelector("#chat-profile-input");
@@ -866,6 +1677,295 @@
   let bridgeCommands = null;
   let usingNativeBridge = false;
   let client = null;
+  const customSelectControllers = new Map();
+
+  function createBrowserBridgeTransport() {
+    return {
+      async request({ method, params = {}, timeoutMs }) {
+        const response = await fetch("/api/bridge/request", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            method,
+            params,
+            timeout_ms: timeoutMs ?? null,
+          }),
+        });
+        const payload = await response.json();
+        if (!payload.ok) {
+          throw new Error(payload.error || "Browser bridge request failed");
+        }
+        return payload.result;
+      },
+    };
+  }
+
+  function createBrowserBridgeCommands() {
+    return {
+      async runtimeInfo() {
+        const response = await fetch("/api/bridge/runtime", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`Bridge runtime failed: ${response.status}`);
+        }
+        return response.json();
+      },
+      async drainEvents() {
+        const response = await fetch("/api/bridge/events", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`Bridge events failed: ${response.status}`);
+        }
+        const payload = await response.json();
+        return Array.isArray(payload?.events) ? payload.events : [];
+      },
+      async reportDiagnostic() {
+        return { ok: true };
+      },
+      async shutdownCore() {
+        const response = await fetch("/api/bridge/shutdown", { method: "POST" });
+        return response.ok ? response.json() : { stopped: false };
+      },
+    };
+  }
+
+  async function detectBrowserBridge() {
+    try {
+      const response = await fetch("/api/bridge/runtime", { cache: "no-store" });
+      if (!response.ok) {
+        return null;
+      }
+      return createBrowserBridgeCommands();
+    } catch {
+      return null;
+    }
+  }
+
+  function resolveConfigScopeForProvider(providerName) {
+    const normalized = String(providerName || "").trim();
+    if (!normalized) {
+      return "routing";
+    }
+    const openaiProviders = state.openaiCompatibleSettings?.providers || [];
+    if (openaiProviders.some((item) => item.provider_name === normalized)) {
+      return "openai";
+    }
+    const anthropicProviders = state.anthropicMessagesSettings?.providers || [];
+    if (anthropicProviders.some((item) => item.provider_name === normalized)) {
+      return "anthropic";
+    }
+    return "routing";
+  }
+
+  function setConfigScope(scope) {
+    if (!configScopeSelect || !scope) {
+      return;
+    }
+    if (configScopeSelect.value !== scope) {
+      configScopeSelect.value = scope;
+    }
+    applyConfigScopeView();
+  }
+
+  function syncConfigScopeFromProvider(providerName) {
+    const scope = resolveConfigScopeForProvider(providerName);
+    setConfigScope(scope);
+    if (scope === "openai" && providerConfigSelect && providerName) {
+      providerConfigSelect.value = providerName;
+      state = selectProviderConfig(state, providerName);
+    }
+    if (scope === "anthropic" && anthropicConfigSelect && providerName) {
+      anthropicConfigSelect.value = providerName;
+      state = selectAnthropicConfig(state, providerName);
+    }
+  }
+
+  function applyConfigScopeView() {
+    const scope = configScopeSelect?.value || "routing";
+    routingConfigBlock?.classList.toggle("is-hidden", scope !== "routing");
+    openaiConfigBlock?.classList.toggle("is-hidden", scope !== "openai");
+    anthropicConfigBlock?.classList.toggle("is-hidden", scope !== "anthropic");
+    try {
+      window.localStorage?.setItem("yue.desktop.configScope", scope);
+    } catch {
+      return;
+    }
+  }
+
+  function ensureCustomSelect(select) {
+    if (!select || customSelectControllers.has(select)) {
+      return customSelectControllers.get(select) || null;
+    }
+    const wrapper = document.createElement("div");
+    wrapper.className = "custom-select";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "custom-select-trigger";
+    button.setAttribute("aria-haspopup", "listbox");
+    button.innerHTML = `
+      <span class="custom-select-trigger-copy"></span>
+      <span class="custom-select-trigger-meta"></span>
+      <span class="custom-select-chevron" aria-hidden="true"></span>
+    `;
+    const panel = document.createElement("div");
+    panel.className = "custom-select-panel";
+    panel.setAttribute("role", "listbox");
+    select.classList.add("custom-select-native");
+    select.setAttribute("tabindex", "-1");
+    select.after(wrapper);
+    wrapper.append(select, button, panel);
+
+    const triggerCopy = button.querySelector(".custom-select-trigger-copy");
+    const triggerMeta = button.querySelector(".custom-select-trigger-meta");
+
+    const controller = {
+      select,
+      wrapper,
+      button,
+      panel,
+      sync() {
+        const options = Array.from(select.options || []);
+        const selected = options.find((item) => item.value === select.value) || options[0] || null;
+        triggerCopy.textContent = selected?.textContent || "Select";
+        triggerMeta.textContent = options.length > 1 ? `${options.length} options` : "";
+        panel.replaceChildren();
+        options.forEach((option, index) => {
+          const item = document.createElement("button");
+          item.type = "button";
+          item.className = [
+            "custom-select-option",
+            option.value === select.value ? "is-selected" : "",
+          ].filter(Boolean).join(" ");
+          item.setAttribute("role", "option");
+          item.dataset.value = option.value;
+          item.innerHTML = `
+            <span class="custom-select-option-label">${option.textContent || option.value || `Option ${index + 1}`}</span>
+            <span class="custom-select-option-meta">${option.value === select.value ? "Active" : "Switch"}</span>
+          `;
+          item.addEventListener("click", () => {
+            if (select.value !== option.value) {
+              select.value = option.value;
+              select.dispatchEvent(new Event("change", { bubbles: true }));
+            }
+            controller.close();
+            controller.sync();
+          });
+          panel.append(item);
+        });
+        wrapper.classList.toggle("is-disabled", Boolean(select.disabled));
+      },
+      open() {
+        if (select.disabled) {
+          return;
+        }
+        for (const entry of customSelectControllers.values()) {
+          if (entry !== controller) {
+            entry.close();
+          }
+        }
+        wrapper.classList.add("is-open");
+        button.setAttribute("aria-expanded", "true");
+      },
+      close() {
+        wrapper.classList.remove("is-open");
+        button.setAttribute("aria-expanded", "false");
+      },
+      toggle() {
+        if (wrapper.classList.contains("is-open")) {
+          controller.close();
+        } else {
+          controller.open();
+        }
+      },
+    };
+
+    button.addEventListener("click", () => controller.toggle());
+    select.addEventListener("change", () => controller.sync());
+    customSelectControllers.set(select, controller);
+    controller.sync();
+    return controller;
+  }
+
+  function syncCustomSelects() {
+    [
+      activeProviderKindSelect,
+      activeProviderModelInput,
+      providerConfigSelect,
+      anthropicConfigSelect,
+      configScopeSelect,
+    ].forEach((select) => {
+      const controller = ensureCustomSelect(select);
+      controller?.sync();
+    });
+  }
+
+  function isLocalProviderKind(kind) {
+    return ["llama.cpp", "ollama", "lmstudio", "custom"].includes(kind);
+  }
+
+  function createDefaultActiveProviderDraft(kind) {
+    const option = (state.activeProviderSettings?.provider_options || []).find(
+      (item) => item.kind === kind,
+    ) || {};
+    const current = state.activeProviderDraft || {};
+    const host = option.default_host || "";
+    const port = option.default_port || "";
+    const suffix = kind === "llama.cpp" ? "" : "/v1";
+    return {
+      kind,
+      provider_name: option.default_provider_name || `${kind}.chat`,
+      model: "",
+      api_key_env: option.default_api_key_env || "",
+      host,
+      port,
+      base_url: isLocalProviderKind(kind) && host && port ? `http://${host}:${port}${suffix}` : "",
+      anthropic_version: "2023-06-01",
+      timeout_seconds: current.timeout_seconds ?? 120,
+      health_timeout_seconds: current.health_timeout_seconds ?? 5,
+      temperature: current.temperature ?? 0.7,
+      max_tokens: current.max_tokens ?? 1024,
+    };
+  }
+
+  function populateActiveProviderModelSelect(models = [], selectedModel = "") {
+    if (!activeProviderModelInput) {
+      return;
+    }
+    activeProviderModelInput.replaceChildren();
+    const normalizedModels = Array.isArray(models)
+      ? models.filter((item) => String(item || "").trim())
+      : [];
+    if (normalizedModels.length === 0) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "No models loaded";
+      activeProviderModelInput.append(option);
+      activeProviderModelInput.value = "";
+      return;
+    }
+    for (const model of normalizedModels) {
+      const option = document.createElement("option");
+      option.value = model;
+      option.textContent = model;
+      activeProviderModelInput.append(option);
+    }
+    activeProviderModelInput.value =
+      normalizedModels.includes(selectedModel) ? selectedModel : normalizedModels[0];
+  }
+
+  function applyActiveProviderKindView(kind) {
+    const normalized = String(kind || "").trim().toLowerCase();
+    activeProviderLocalFields?.toggleAttribute("hidden", !isLocalProviderKind(normalized));
+    activeProviderAnthropicFields?.toggleAttribute("hidden", normalized !== "anthropic");
+    if (activeProviderModelInput) {
+      activeProviderModelInput.disabled = isLocalProviderKind(normalized);
+    }
+    if (activeProviderModelShell) {
+      activeProviderModelShell.querySelector("span").textContent = isLocalProviderKind(normalized)
+        ? "Detected model"
+        : "Model catalog";
+    }
+  }
 
   const OPENAI_COMPAT_PRESETS = {
     openai: {
@@ -926,12 +2026,12 @@
     custom: {
       backend: "custom",
       base_url: "http://127.0.0.1:8080/v1",
-      model: "replace-me",
+      model: "Qwen3-4B-Q5_K_M.gguf",
       api_key_env: "",
       timeout_seconds: 120,
       health_timeout_seconds: 5,
       temperature: 0.7,
-      max_tokens: 1024,
+      max_tokens: 2048,
       headers: {},
     },
   };
@@ -960,9 +2060,116 @@
     settingsStatusLine.textContent = state.settingsStatus;
     providerConfigStatusLine.textContent = state.providerConfigStatus;
     anthropicConfigStatusLine.textContent = state.anthropicConfigStatus;
-    approvalStatusLine.textContent = state.approvalStatus;
+    runInspectorStatusLine.textContent = describeRunInspectorStatus(state);
+    allowAllCmdStatusLine.textContent = state.allowAllCmdStatus;
+    parallelInspectStatusLine.textContent = state.parallelInspectStatus;
+    toolCatalogStatusLine.textContent = state.toolCatalogStatus;
+    allowAllCmdToggle.checked = Boolean(state.allowAllCmd);
     bridgeLine.title = state.bridgeLastError || state.bridgeNote;
     consolePanel.classList.toggle("hidden", !state.consoleOpen);
+    const providerCount = state.providerHealth.length;
+    const healthyCount = state.providerHealth.filter((item) => item.ok).length;
+    if (overviewSessionKicker) {
+      overviewSessionKicker.textContent = state.attachedSessionIds.join(", ") || "Disconnected";
+    }
+    if (overviewRuntimeSummary) {
+      overviewRuntimeSummary.textContent = state.bridgeProcessStarted
+        ? "Bridge live and listening"
+        : "Bridge idle";
+    }
+    if (overviewProviderSummary) {
+      overviewProviderSummary.textContent =
+        providerCount > 0
+          ? `${healthyCount} of ${providerCount} providers healthy`
+          : "No provider health loaded yet.";
+    }
+    if (overviewActivitySummary) {
+      overviewActivitySummary.textContent = state.toolActivityStatus;
+    }
+    if (overviewBridgePending) {
+      overviewBridgePending.textContent = String(state.bridgePendingRequests || 0);
+    }
+    if (overviewBridgeEvents) {
+      overviewBridgeEvents.textContent = String(state.bridgeQueuedEvents || 0);
+    }
+    if (overviewMessageCount) {
+      overviewMessageCount.textContent = String(state.messages.length);
+    }
+    if (overviewApprovalCount) {
+      overviewApprovalCount.textContent = String(state.pendingApprovals.length);
+    }
+    if (overviewBandBridgeNote) {
+      overviewBandBridgeNote.textContent = state.bridgeLastError || state.bridgeNote;
+    }
+    opsDrawer?.classList.toggle("is-open", state.activeDrawer === "ops");
+    configDrawer?.classList.toggle("is-open", state.activeDrawer === "config");
+    consoleDrawerBackdrop?.toggleAttribute("hidden", !state.activeDrawer);
+    opsDrawerButton?.classList.toggle("is-active", state.activeDrawer === "ops");
+    configDrawerButton?.classList.toggle("is-active", state.activeDrawer === "config");
+    applyConfigScopeView();
+
+    if (activeProviderStatusLine) {
+      activeProviderStatusLine.textContent = state.activeProviderStatus;
+    }
+    const activeProviderSnapshot = state.activeProviderSettings?.active_provider || null;
+    const activeProviderDraft = state.activeProviderDraft || null;
+    const activeProviderCatalog = state.activeProviderCatalog || null;
+    if (activeProviderRuntimeLine) {
+      activeProviderRuntimeLine.textContent = activeProviderSnapshot
+        ? `${activeProviderSnapshot.label} | ${activeProviderSnapshot.provider_name} | ${activeProviderSnapshot.model}`
+        : "Single-provider mode keeps one model active at a time.";
+    }
+    if (activeProviderKindSelect) {
+      activeProviderKindSelect.replaceChildren();
+      const options = state.activeProviderSettings?.provider_options || [];
+      for (const item of options) {
+        const option = document.createElement("option");
+        option.value = item.kind;
+        option.textContent = item.label;
+        activeProviderKindSelect.append(option);
+      }
+      const selectedKind = activeProviderDraft?.kind || activeProviderSnapshot?.kind || "";
+      if (selectedKind && activeProviderKindSelect.querySelector(`option[value="${selectedKind}"]`)) {
+        activeProviderKindSelect.value = selectedKind;
+      }
+    }
+    if (activeProviderDraft) {
+      activeProviderNameInput.value = activeProviderDraft.provider_name || "";
+      activeProviderApiKeyEnvInput.value = activeProviderDraft.api_key_env || "";
+      activeProviderHostInput.value = activeProviderDraft.host || "";
+      activeProviderPortInput.value = String(activeProviderDraft.port || "");
+      activeProviderBaseUrlInput.value = activeProviderDraft.base_url || "";
+      activeProviderAnthropicVersionInput.value =
+        activeProviderDraft.anthropic_version || "2023-06-01";
+      activeProviderTimeoutInput.value = String(activeProviderDraft.timeout_seconds ?? "");
+      activeProviderHealthTimeoutInput.value = String(
+        activeProviderDraft.health_timeout_seconds ?? "",
+      );
+      activeProviderTemperatureInput.value = String(activeProviderDraft.temperature ?? "");
+      activeProviderMaxTokensInput.value = String(activeProviderDraft.max_tokens ?? "");
+      populateActiveProviderModelSelect(
+        activeProviderCatalog?.models || [],
+        activeProviderDraft.model || activeProviderCatalog?.selected_model || "",
+      );
+      applyActiveProviderKindView(activeProviderDraft.kind);
+      if (activeProviderModelHint) {
+        if (activeProviderCatalog?.error) {
+          activeProviderModelHint.textContent = activeProviderCatalog.error;
+        } else if (isLocalProviderKind(activeProviderDraft.kind)) {
+          activeProviderModelHint.textContent = activeProviderDraft.model
+            ? `Auto-detected from local runtime: ${activeProviderDraft.model}`
+            : "Refresh models to detect the runtime model from your local server.";
+        } else if ((activeProviderCatalog?.models || []).length > 0) {
+          activeProviderModelHint.textContent = `${activeProviderCatalog.models.length} models available from ${activeProviderDraft.provider_name || activeProviderDraft.kind}.`;
+        } else {
+          activeProviderModelHint.textContent = "Refresh models to load the latest catalog from this provider.";
+        }
+      }
+    } else {
+      populateActiveProviderModelSelect([], "");
+      applyActiveProviderKindView(activeProviderKindSelect?.value || "");
+    }
+    syncCustomSelects();
 
     providerOptions.replaceChildren();
     for (const provider of state.availableProviders) {
@@ -1068,39 +2275,838 @@
     anthropicMaxTokensInput.value = String(selectedAnthropicConfig?.max_tokens ?? "");
     renderHeaderRows(anthropicHeadersList, selectedAnthropicConfig?.headers || {});
 
-    approvalList.replaceChildren();
-    for (const item of state.pendingApprovals) {
-      const row = document.createElement("article");
-      row.className = "approval-row";
+    runInspectorList.replaceChildren();
+    const runInspectorItems = buildRunInspectorItems(state);
+    const runInspectorGroups = groupRunInspectorItems(runInspectorItems);
+    if (runInspectorGroups.length === 0) {
+      runInspectorList.append(renderRunInspectorEmptyState());
+    }
+    for (const group of runInspectorGroups) {
+      runInspectorList.append(renderRunInspectorGroup(group));
+    }
 
-      const title = document.createElement("div");
-      title.className = "approval-title";
-      title.textContent = item.tool_name || "approval";
+    toolCatalogList.replaceChildren();
+    for (const item of state.toolsCatalog) {
+      const row = document.createElement("article");
+      row.className = "tool-catalog-row";
+
+      const head = document.createElement("div");
+      head.className = "tool-catalog-head";
+
+      const name = document.createElement("div");
+      name.className = "tool-catalog-name";
+      name.textContent = item.name || "unknown tool";
+
+      const badges = document.createElement("div");
+      badges.className = "tool-catalog-badges";
+      badges.append(
+        createToolBadge(item.output_kind || item.metadata?.output_kind || "structured"),
+        createToolBadge(
+          item.metadata?.parallel_safe ? "parallel_safe" : "sequential_only",
+          item.metadata?.parallel_safe ? "safe" : "risky",
+        ),
+        createToolBadge(
+          item.metadata?.mutates_state ? "mutates_state" : "read_only",
+          item.metadata?.mutates_state ? "risky" : "safe",
+        ),
+      );
+
+      head.append(name, badges);
+
+      const description = document.createElement("div");
+      description.className = "tool-catalog-description";
+      description.textContent = item.description || "No description";
 
       const meta = document.createElement("div");
-      meta.className = "approval-meta";
+      meta.className = "tool-catalog-meta";
       meta.textContent = [
-        item.risk_level || "unknown risk",
-        item.actor || "unknown actor",
-        item.session_id || "no session",
+        item.capability || "no capability",
+        item.risk || "unknown risk",
+        item.plugin_id || "core",
       ].join(" | ");
 
-      const reason = document.createElement("div");
-      reason.className = "approval-reason";
-      reason.textContent = item.reason || "No reason provided";
+      const contract = document.createElement("div");
+      contract.className = "tool-catalog-contract";
+      contract.textContent = describeToolContract(item);
 
-      const args = document.createElement("pre");
-      args.className = "approval-arguments";
-      args.textContent = JSON.stringify(item.arguments || {}, null, 2);
+      row.append(head, description, meta, contract);
+      toolCatalogList.append(row);
+    }
 
-      const actions = document.createElement("div");
-      actions.className = "approval-actions";
+    parallelInspectResults.replaceChildren();
+    for (const item of state.parallelInspectResults) {
+      const row = document.createElement("article");
+      row.className = "parallel-inspect-row";
 
+      const head = document.createElement("div");
+      head.className = "parallel-inspect-head";
+
+      const path = document.createElement("div");
+      path.className = "parallel-inspect-path";
+      path.textContent = item.path || item.tool_name || "unknown path";
+
+      const badge = createToolBadge(
+        item.status || "unknown",
+        item.status === "succeeded" ? "safe" : "risky",
+      );
+      head.append(path, badge);
+
+      const meta = document.createElement("div");
+      meta.className = "parallel-inspect-meta";
+      meta.textContent = [
+        item.start_line && item.end_line
+          ? `lines ${item.start_line}-${item.end_line}`
+          : `lines ${item.start_line || "?"}-${item.end_line || "?"}`,
+        item.total_lines ? `${item.returned_lines || 0}/${item.total_lines} returned` : null,
+        item.truncated ? "truncated" : "full",
+      ]
+        .filter(Boolean)
+        .join(" | ");
+
+      const preview = document.createElement("pre");
+      preview.className = "parallel-inspect-preview";
+      preview.textContent = item.error || item.content || "No output";
+
+      row.append(head, meta, preview);
+      parallelInspectResults.append(row);
+    }
+
+    messageLog.replaceChildren();
+    const messageGroups = buildMessageGroups(state.messages);
+    messageLog.classList.toggle("is-stacked", messageGroups.length <= 6);
+    messageLog.classList.toggle("has-messages", messageGroups.length > 0);
+    for (const [index, group] of messageGroups.entries()) {
+      const block = document.createElement("section");
+      block.className = `message-group ${group.kind === "run" ? "is-run-group" : "is-loose-group"}`;
+      block.dataset.stackDepth = String(Math.max(0, messageGroups.length - index - 1));
+      if (group.kind === "run") {
+        block.dataset.runId = group.run_id || "";
+      }
+      if (group.kind === "run") {
+        const header = document.createElement("button");
+        header.className = "message-group-header";
+        header.type = "button";
+        const collapsed = isRunGroupCollapsed(state, group.run_id);
+        header.append(renderRunGroupHeader(group, collapsed));
+        header.addEventListener("click", () => {
+          state = toggleRunGroupCollapsed(state, group.run_id);
+          render();
+        });
+        block.append(header);
+        block.append(renderRunGroupSummary(group));
+      }
+      if (!isRunGroupCollapsed(state, group.run_id)) {
+        for (const item of group.messages) {
+          const row = renderMessageRow(item);
+          block.append(row);
+        }
+      }
+      messageLog.append(block);
+    }
+    messageLog.scrollTop = messageLog.scrollHeight;
+  }
+
+  function createJumpButton(label, message, selection) {
+    const button = document.createElement("button");
+    button.className = "ghost-button inline-button";
+    button.type = "button";
+    button.textContent = label;
+    button.disabled = !message;
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (!message) {
+        return;
+      }
+      focusInspectorSelection(
+        buildInspectorSelection(selection, message.id),
+        message.id,
+      );
+    });
+    return button;
+  }
+
+  function buildInspectorSelection(source = {}, messageId = null) {
+    return {
+      run_id: source.run_id || null,
+      request_id: source.request_id || null,
+      tool_call_id: source.tool_call_id || null,
+      approval_id: source.approval_id || null,
+      message_id: messageId || null,
+    };
+  }
+
+  function selectionMatchesInspector(selection, item = {}) {
+    if (!selection) {
+      return false;
+    }
+    return Boolean(
+      (selection.message_id && item.id && selection.message_id === item.id) ||
+        (selection.request_id && item.request_id && selection.request_id === item.request_id) ||
+        (selection.tool_call_id &&
+          item.tool_call_id &&
+          selection.tool_call_id === item.tool_call_id) ||
+        (selection.approval_id && item.approval_id && selection.approval_id === item.approval_id) ||
+        (selection.run_id && item.run_id && selection.run_id === item.run_id),
+    );
+  }
+
+  function findToolResultMessage(state, refs = {}) {
+    return [...state.messages]
+      .reverse()
+      .find(
+        (message) =>
+          message.kind === "tool_result" &&
+          selectionMatchesInspector(buildInspectorSelection(refs), message),
+      );
+  }
+
+  function findAssistantTurnMessage(state, refs = {}) {
+    return [...state.messages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === "assistant" &&
+          selectionMatchesInspector(buildInspectorSelection(refs), message),
+      );
+  }
+
+  function buildMessageGroups(messages = []) {
+    const groups = [];
+    for (const message of messages) {
+      if (message.run_id) {
+        const existing = groups.find(
+          (group) => group.kind === "run" && group.run_id === message.run_id,
+        );
+        if (existing) {
+          existing.messages.push(message);
+        } else {
+          groups.push({ kind: "run", run_id: message.run_id, messages: [message] });
+        }
+        continue;
+      }
+      groups.push({
+        kind: "loose",
+        id: message.id || `loose-${groups.length}`,
+        messages: [message],
+      });
+    }
+    return groups;
+  }
+
+  function isRunGroupCollapsed(state, runId) {
+    return Boolean(runId && (state.collapsedRunIds || []).includes(runId));
+  }
+
+  function describeRunGroupHeader(group, collapsed) {
+    const summary = summarizeRunGroup(group);
+    return [
+      collapsed ? "[+]" : "[-]",
+      `run ${group.run_id}`,
+      `${summary.userCount} user`,
+      `${summary.assistantCount} assistant`,
+      `${summary.toolCount} tool`,
+      summary.errorCount > 0 ? `${summary.errorCount} issue` : "clean",
+    ].join(" | ");
+  }
+
+  function summarizeRunGroup(group) {
+    const messages = Array.isArray(group.messages) ? group.messages : [];
+    const userCount = messages.filter((item) => item.role === "user").length;
+    const assistantMessages = messages.filter((item) => item.role === "assistant");
+    const assistantCount = assistantMessages.length;
+    const toolMessages = messages.filter((item) => item.role === "tool");
+    const toolCount = toolMessages.length;
+    const errorCount = toolMessages.filter((item) =>
+      ["failed", "denied", "denied_by_user", "denied_by_profile", "timed_out", "cancelled"].includes(item.status),
+    ).length;
+    const activeCount = toolMessages.filter((item) =>
+      ["requested", "running", "waiting_approval", "approved_pending_run"].includes(item.status),
+    ).length;
+    const outcome =
+      errorCount > 0 ? "issues" : activeCount > 0 ? "active" : toolCount > 0 ? "complete" : "chat_only";
+    const assistant = [...messages]
+      .reverse()
+      .find((item) => item.role === "assistant" && item.text);
+    const tool = [...messages]
+      .reverse()
+      .find((item) => item.role === "tool");
+    const assistantCopyText = assistant?.text || "";
+    const toolCopyText = tool
+      ? tool.error || tool.text || (tool.output !== undefined ? JSON.stringify(tool.output, null, 2) : "")
+      : "";
+    return {
+      userCount,
+      assistantCount,
+      toolCount,
+      errorCount,
+      activeCount,
+      outcome,
+      assistant,
+      tool,
+      assistantPreviewText: assistant
+        ? `Assistant: ${summarizeDesktopText(assistant.text, 140)}`
+        : "Assistant: no final assistant turn yet",
+      toolPreviewText: tool
+        ? `Latest tool: ${tool.tool_name || "tool"} | ${tool.status || "unknown"} | ${summarizeDesktopText(tool.error || tool.text || toolCopyText, 120)}`
+        : toolCount > 0
+          ? "Latest tool: pending"
+          : "Latest tool: none",
+      assistantCopyText,
+      toolCopyText,
+    };
+  }
+
+  function renderRunGroupHeader(group, collapsed) {
+    const summary = summarizeRunGroup(group);
+    const wrapper = document.createElement("div");
+    wrapper.className = "message-group-header-inner";
+
+    const title = document.createElement("div");
+    title.className = "message-group-title";
+    title.textContent = `${collapsed ? "[+]" : "[-]"} run ${group.run_id}`;
+
+    const badges = document.createElement("div");
+    badges.className = "message-group-badges";
+    badges.append(
+      createToolBadge(summary.outcome, runSummaryTone(summary.outcome)),
+      createToolBadge(`${summary.userCount} user`),
+      createToolBadge(`${summary.assistantCount} assistant`),
+      createToolBadge(`${summary.toolCount} tool`, summary.toolCount > 0 ? "neutral" : "safe"),
+      createToolBadge(
+        summary.errorCount > 0 ? `${summary.errorCount} issue` : "clean",
+        summary.errorCount > 0 ? "risky" : "safe",
+      ),
+    );
+    wrapper.append(title, badges);
+    return wrapper;
+  }
+
+  function renderRunGroupSummary(group) {
+    const { summary, summaryText, assistantText, toolText, jsonText } = buildRunCopyArtifacts(group);
+    const latestInspectorItem = findLatestToolActivityForRun(state.toolActivity, group.run_id);
+    const row = document.createElement("div");
+    row.className = "message-group-summary";
+
+    const assistantPreview = document.createElement("div");
+    assistantPreview.className = "message-group-summary-line";
+    assistantPreview.textContent = summary.assistantPreviewText;
+
+    const toolPreview = document.createElement("div");
+    toolPreview.className = "message-group-summary-line";
+    toolPreview.textContent = summary.toolPreviewText;
+
+    const actions = document.createElement("div");
+    actions.className = "message-group-summary-actions";
+
+    const copySummaryButton = document.createElement("button");
+    copySummaryButton.className = "ghost-button inline-button";
+    copySummaryButton.type = "button";
+    copySummaryButton.textContent = "Copy summary";
+    copySummaryButton.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      await copyRunPayload(summaryText, `Copied run ${group.run_id} summary`);
+    });
+
+    const focusInspectorButton = document.createElement("button");
+    focusInspectorButton.className = "ghost-button inline-button";
+    focusInspectorButton.type = "button";
+    focusInspectorButton.textContent = "Focus inspector";
+    focusInspectorButton.disabled = !latestInspectorItem;
+    focusInspectorButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      focusInspectorSelection(buildInspectorSelection(latestInspectorItem || { run_id: group.run_id }), null);
+    });
+
+    const copyAnswerButton = document.createElement("button");
+    copyAnswerButton.className = "ghost-button inline-button";
+    copyAnswerButton.type = "button";
+    copyAnswerButton.textContent = "Copy answer";
+    copyAnswerButton.disabled = !assistantText;
+    copyAnswerButton.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      await copyRunPayload(assistantText, `Copied run ${group.run_id} answer`);
+    });
+
+    const copyToolButton = document.createElement("button");
+    copyToolButton.className = "ghost-button inline-button";
+    copyToolButton.type = "button";
+    copyToolButton.textContent = "Copy tool result";
+    copyToolButton.disabled = !toolText;
+    copyToolButton.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      await copyRunPayload(toolText, `Copied run ${group.run_id} tool result`);
+    });
+
+    const copyJsonButton = document.createElement("button");
+    copyJsonButton.className = "ghost-button inline-button";
+    copyJsonButton.type = "button";
+    copyJsonButton.textContent = "Copy run JSON";
+    copyJsonButton.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      await copyRunPayload(jsonText, `Copied run ${group.run_id} JSON`);
+    });
+
+    actions.append(
+      copySummaryButton,
+      focusInspectorButton,
+      copyAnswerButton,
+      copyToolButton,
+      copyJsonButton,
+    );
+    row.append(assistantPreview, toolPreview, actions);
+    return row;
+  }
+
+  function summarizeDesktopText(value, maxChars = 120) {
+    const text = String(value || "").replace(/\s+/g, " ").trim();
+    if (!text) {
+      return "none";
+    }
+    if (text.length <= maxChars) {
+      return text;
+    }
+    return `${text.slice(0, maxChars - 1)}...`;
+  }
+
+  function buildRunCopyArtifacts(group = {}) {
+    const summary = summarizeRunGroup(group);
+    return {
+      summary,
+      summaryText: [
+        `run ${group.run_id || "unknown"}`,
+        `outcome: ${summary.outcome}`,
+        `users: ${summary.userCount}`,
+        `assistants: ${summary.assistantCount}`,
+        `tools: ${summary.toolCount}`,
+        `issues: ${summary.errorCount}`,
+        summary.assistantPreviewText,
+        summary.toolPreviewText,
+      ].join("\n"),
+      assistantText: summary.assistantCopyText,
+      toolText: summary.toolCopyText,
+      jsonText: JSON.stringify(
+        {
+          run_id: group.run_id || null,
+          summary: {
+            userCount: summary.userCount,
+            assistantCount: summary.assistantCount,
+            toolCount: summary.toolCount,
+            errorCount: summary.errorCount,
+            activeCount: summary.activeCount,
+            outcome: summary.outcome,
+          },
+          messages: Array.isArray(group.messages) ? group.messages : [],
+        },
+        null,
+        2,
+      ),
+    };
+  }
+
+  function findLatestToolActivityForRun(toolActivity = [], runId) {
+    if (!runId || !Array.isArray(toolActivity)) {
+      return null;
+    }
+    return toolActivity.find((item) => item?.run_id === runId) || null;
+  }
+
+  async function copyRunPayload(text, successStatus) {
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        fallbackCopyText(text);
+      }
+      state = applyToolActivityStatus(state, successStatus);
+    } catch (error) {
+      state = applyToolActivityStatus(
+        state,
+        `Copy failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    render();
+  }
+
+  function fallbackCopyText(text) {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "true");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.append(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+
+  function runSummaryTone(outcome) {
+    switch (outcome) {
+      case "issues":
+        return "risky";
+      case "active":
+        return "neutral";
+      case "complete":
+        return "safe";
+      default:
+        return "neutral";
+    }
+  }
+
+  function describeRunGroupHeaderLegacy(group, collapsed) {
+    const userCount = group.messages.filter((item) => item.role === "user").length;
+    const assistantCount = group.messages.filter((item) => item.role === "assistant").length;
+    const toolCount = group.messages.filter((item) => item.role === "tool").length;
+    return [
+      collapsed ? "[+]" : "[-]",
+      `run ${group.run_id}`,
+      `${userCount} user`,
+      `${assistantCount} assistant`,
+      `${toolCount} tool`,
+    ].join(" | ");
+  }
+
+  function renderMessageRow(item) {
+    const row = document.createElement("article");
+    row.className = [
+      `message-row role-${item.role}`,
+      selectionMatchesInspector(state.inspectorSelection, item) ? "is-selected" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    row.dataset.messageId = item.id || "";
+
+    const head = document.createElement("div");
+    head.className = "message-head";
+
+    const sigil = document.createElement("div");
+    sigil.className = "message-sigil";
+    sigil.textContent =
+      item.role === "user" ? "YOU" : item.role === "assistant" ? "AI" : "TOOL";
+
+    const title = document.createElement("div");
+    title.className = "message-role";
+    title.textContent = item.tool_name
+      ? item.tool_name
+      : item.role === "assistant"
+        ? "Yue"
+        : item.role === "user"
+          ? "You"
+          : "Tool";
+
+    const meta = document.createElement("div");
+    meta.className = "message-meta";
+    meta.textContent = item.role === "tool"
+      ? [
+          item.run_id ? `run ${item.run_id}` : null,
+          item.tool_call_id ? `call ${item.tool_call_id}` : null,
+          item.request_id ? `request ${item.request_id}` : null,
+          item.status ? `status ${item.status}` : null,
+        ]
+          .filter(Boolean)
+          .join(" | ")
+      : item.role === "assistant"
+        ? "Assistant response"
+        : "Prompt sent";
+
+    const titleStack = document.createElement("div");
+    titleStack.className = "message-title-stack";
+    titleStack.append(title, meta);
+
+    head.append(sigil, titleStack);
+
+    const body = document.createElement(item.role === "tool" ? "pre" : "div");
+    body.className = [
+      "message-body",
+      item.role === "tool" ? "is-tool-body" : "is-chat-body",
+    ].join(" ");
+    const text = String(item.text || "");
+    if (item.role === "tool") {
+      body.textContent = text;
+    } else {
+      const paragraphs = text
+        .split(/\n{2,}/)
+        .map((chunk) => chunk.trim())
+        .filter(Boolean);
+      if (paragraphs.length === 0) {
+        body.textContent = text;
+      } else {
+        for (const paragraphText of paragraphs) {
+          const paragraph = document.createElement("p");
+          paragraph.className = "message-paragraph";
+          paragraph.textContent = paragraphText;
+          body.append(paragraph);
+        }
+      }
+    }
+
+    row.append(head, body);
+    row.addEventListener("click", () => {
+      focusInspectorSelection(buildInspectorSelection(item, item.id), item.id, { renderOnly: true });
+    });
+    return row;
+  }
+
+  function focusInspectorSelection(selection, messageId = null, options = {}) {
+    if (selection?.run_id) {
+      state = expandRunGroup(state, selection.run_id);
+      state = expandInspectorRunGroup(state, selection.run_id);
+    }
+    state = applyInspectorSelection(state, selection);
+    render();
+    if (options.renderOnly || !messageId) {
+      return;
+    }
+    queueMicrotask(() => {
+      const target = messageId
+        ? messageLog.querySelector(`[data-message-id="${messageId}"]`)
+        : runInspectorList.querySelector(".tool-activity-row.is-selected");
+      target?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  }
+
+  function buildRunInspectorItems(state) {
+    const items = [];
+    const seenApprovalIds = new Set();
+    for (const toolItem of state.toolActivity) {
+      const approval = state.pendingApprovals.find(
+        (item) =>
+          (toolItem.approval_id && item.approval_id === toolItem.approval_id) ||
+          (toolItem.request_id && item.request_id === toolItem.request_id),
+      );
+      if (approval?.approval_id) {
+        seenApprovalIds.add(approval.approval_id);
+      }
+      items.push({
+        ...toolItem,
+        kind: "tool_activity",
+        approval_pending: Boolean(approval),
+        approval_record: approval || null,
+        reason: approval?.reason || toolItem.error || null,
+        risk_level: approval?.risk_level || null,
+        actor: approval?.actor || null,
+        session_id: approval?.session_id || null,
+      });
+    }
+    for (const approval of state.pendingApprovals) {
+      if (approval.approval_id && seenApprovalIds.has(approval.approval_id)) {
+        continue;
+      }
+      items.push({
+        run_id: null,
+        conversation_id: null,
+        tool_call_id: null,
+        request_id: approval.request_id || null,
+        tool_name: approval.tool_name || "approval",
+        arguments: approval.arguments || {},
+        status: "waiting_approval",
+        output: null,
+        error: approval.reason || null,
+        approval_id: approval.approval_id || null,
+        kind: "approval_only",
+        approval_pending: true,
+        approval_record: approval,
+        reason: approval.reason || null,
+        risk_level: approval.risk_level || null,
+        actor: approval.actor || null,
+        session_id: approval.session_id || null,
+      });
+    }
+    return items;
+  }
+
+  function groupRunInspectorItems(items = []) {
+    const groups = [];
+    for (const item of Array.isArray(items) ? items : []) {
+      if (item?.run_id) {
+        const existing = groups.find(
+          (group) => group.kind === "run" && group.run_id === item.run_id,
+        );
+        if (existing) {
+          existing.items.push(item);
+        } else {
+          groups.push({
+            kind: "run",
+            run_id: item.run_id,
+            items: [item],
+          });
+        }
+        continue;
+      }
+      groups.push({
+        kind: "standalone",
+        id:
+          item?.approval_id ||
+          item?.request_id ||
+          item?.tool_call_id ||
+          `inspector-${groups.length}`,
+        items: [item],
+      });
+    }
+    return groups;
+  }
+
+  function renderRunInspectorGroup(group) {
+    const block = document.createElement("section");
+    block.className = "run-inspector-group";
+
+    if (group.kind === "run") {
+      const collapsed = isInspectorRunGroupCollapsed(state, group.run_id);
+      const header = document.createElement("button");
+      header.className = "run-inspector-group-header";
+      header.type = "button";
+      header.append(renderRunInspectorGroupHeader(group, collapsed));
+      header.addEventListener("click", () => {
+        state = toggleInspectorRunGroupCollapsed(state, group.run_id);
+        render();
+      });
+      block.append(header);
+    }
+
+    if (group.kind !== "run" || !isInspectorRunGroupCollapsed(state, group.run_id)) {
+      const list = document.createElement("div");
+      list.className = "run-inspector-group-list";
+      for (const item of group.items) {
+        list.append(renderRunInspectorItem(item));
+      }
+      block.append(list);
+    }
+    return block;
+  }
+
+  function renderRunInspectorGroupHeader(group, collapsed = false) {
+    const row = document.createElement("div");
+    row.className = "run-inspector-group-header-inner";
+
+    const title = document.createElement("div");
+    title.className = "run-inspector-group-title";
+    title.textContent = `${collapsed ? "[+]" : "[-]"} run ${group.run_id}`;
+
+    const toolCount = group.items.length;
+    const pendingCount = group.items.filter((item) => item.approval_pending).length;
+    const issueCount = group.items.filter((item) =>
+      ["failed", "denied", "denied_by_user", "denied_by_profile", "timed_out", "cancelled"].includes(item.status),
+    ).length;
+
+    const badges = document.createElement("div");
+    badges.className = "run-inspector-group-badges";
+    badges.append(
+      createToolBadge(`${toolCount} tool`, toolCount > 0 ? "neutral" : "safe"),
+      createToolBadge(
+        pendingCount > 0 ? `${pendingCount} pending` : "ready",
+        pendingCount > 0 ? "neutral" : "safe",
+      ),
+      createToolBadge(
+        issueCount > 0 ? `${issueCount} issue` : "clean",
+        issueCount > 0 ? "risky" : "safe",
+      ),
+    );
+
+    const actions = document.createElement("div");
+    actions.className = "run-inspector-group-actions";
+
+    const openRunButton = document.createElement("button");
+    openRunButton.className = "ghost-button inline-button";
+    openRunButton.type = "button";
+    openRunButton.textContent = "Open run";
+    openRunButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      focusMessageRunGroup(group.run_id);
+    });
+
+    actions.append(openRunButton);
+    row.append(title, badges, actions);
+    return row;
+  }
+
+  function renderRunInspectorEmptyState() {
+    const row = document.createElement("div");
+    row.className = "run-inspector-empty";
+    row.textContent = "No tool activity or pending approval in this session.";
+    return row;
+  }
+
+  function isInspectorRunGroupCollapsed(state, runId) {
+    return Boolean(runId && (state.collapsedInspectorRunIds || []).includes(runId));
+  }
+
+  function focusMessageRunGroup(runId) {
+    if (!runId) {
+      return;
+    }
+    const latestInspectorItem = findLatestToolActivityForRun(state.toolActivity, runId);
+    state = expandRunGroup(state, runId);
+    state = expandInspectorRunGroup(state, runId);
+    if (latestInspectorItem) {
+      state = applyInspectorSelection(state, buildInspectorSelection(latestInspectorItem));
+    }
+    render();
+    queueMicrotask(() => {
+      const target = messageLog.querySelector(`[data-run-id="${runId}"]`);
+      target?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  }
+
+  function renderRunInspectorItem(item) {
+    const row = document.createElement("article");
+    const linkedToolResult = findToolResultMessage(state, item);
+    const linkedAssistantTurn = findAssistantTurnMessage(state, item);
+    const selection = buildInspectorSelection(item, linkedToolResult?.id || linkedAssistantTurn?.id);
+    row.className = [
+      "tool-activity-row",
+      item.approval_pending ? "attention" : toolActivityToneClass(item.status),
+      selectionMatchesInspector(state.inspectorSelection, item) ? "is-selected" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    const head = document.createElement("div");
+    head.className = "tool-activity-head";
+
+    const name = document.createElement("div");
+    name.className = "tool-activity-name";
+    name.textContent = item.tool_name || "unknown tool";
+
+    const badge = createToolBadge(
+      humanizeToolStatus(item.status || "unknown"),
+      toolActivityTone(item.status),
+    );
+    head.append(name, badge);
+
+    const meta = document.createElement("div");
+    meta.className = "tool-activity-meta";
+    meta.textContent = [
+      item.run_id ? `run ${item.run_id}` : null,
+      item.tool_call_id ? `call ${item.tool_call_id}` : null,
+      item.request_id ? `request ${item.request_id}` : null,
+      item.approval_id ? `approval ${item.approval_id}` : null,
+      item.risk_level ? item.risk_level : null,
+      item.actor ? item.actor : null,
+      item.session_id ? item.session_id : null,
+    ]
+      .filter(Boolean)
+      .join(" | ");
+
+    const reason = document.createElement("div");
+    reason.className = "approval-reason";
+    reason.textContent = item.reason || "";
+    reason.hidden = !item.reason;
+
+    const preview = document.createElement("pre");
+    preview.className = "tool-activity-preview";
+    preview.textContent =
+      item.error ||
+      (item.output ? JSON.stringify(item.output, null, 2) : JSON.stringify(item.arguments || {}, null, 2));
+
+    const actions = document.createElement("div");
+    actions.className = "inspector-actions";
+
+    if (item.approval_pending && item.approval_id) {
       const approveButton = document.createElement("button");
       approveButton.className = "send-button";
       approveButton.type = "button";
       approveButton.textContent = "Approve";
-      approveButton.addEventListener("click", async () => {
+      approveButton.addEventListener("click", async (event) => {
+        event.stopPropagation();
         await respondToApproval(item.approval_id, true);
       });
 
@@ -1108,23 +3114,101 @@
       denyButton.className = "ghost-button";
       denyButton.type = "button";
       denyButton.textContent = "Deny";
-      denyButton.addEventListener("click", async () => {
+      denyButton.addEventListener("click", async (event) => {
+        event.stopPropagation();
         await respondToApproval(item.approval_id, false);
       });
-
       actions.append(approveButton, denyButton);
-      row.append(title, meta, reason, args, actions);
-      approvalList.append(row);
     }
 
-    messageLog.replaceChildren();
-    for (const item of state.messages) {
-      const row = document.createElement("article");
-      row.className = `message-row role-${item.role}`;
-      row.textContent = `${item.role}: ${item.text}`;
-      messageLog.append(row);
+    actions.append(
+      createJumpButton("Assistant turn", linkedAssistantTurn, selection),
+      createJumpButton("Tool result", linkedToolResult, selection),
+    );
+
+    row.addEventListener("click", () => {
+      focusInspectorSelection(selection, linkedToolResult?.id || linkedAssistantTurn?.id);
+    });
+
+    row.append(head, meta, reason, preview, actions);
+    return row;
+  }
+
+  function describeRunInspectorStatus(state) {
+    const approvals = state.pendingApprovals.length;
+    const toolCount = state.toolActivity.length;
+    if (approvals > 0) {
+      return `${state.toolActivityStatus} | ${approvals} approval${approvals === 1 ? "" : "s"} pending`;
     }
-    messageLog.scrollTop = messageLog.scrollHeight;
+    if (toolCount > 0) {
+      return state.toolActivityStatus;
+    }
+    return state.approvalStatus || state.toolActivityStatus;
+  }
+
+  function createToolBadge(text, tone = "neutral") {
+    const badge = document.createElement("span");
+    badge.className = `tool-badge ${tone}`;
+    badge.textContent = text;
+    return badge;
+  }
+
+  function toolActivityTone(status) {
+    if (status === "succeeded" || status === "completed") {
+      return "safe";
+    }
+    if (
+      status === "requested" ||
+      status === "running" ||
+      status === "waiting_approval" ||
+      status === "approved_pending_run"
+    ) {
+      return "neutral";
+    }
+    return "risky";
+  }
+
+  function toolActivityToneClass(status) {
+    if (status === "waiting_approval" || status === "approved_pending_run") {
+      return "attention";
+    }
+    if (status === "denied_by_user" || status === "denied_by_profile" || status === "failed") {
+      return "blocked";
+    }
+    return "";
+  }
+
+  function humanizeToolStatus(status) {
+    switch (status) {
+      case "waiting_approval":
+        return "waiting approval";
+      case "approved_pending_run":
+        return "approved";
+      case "denied_by_user":
+        return "denied by user";
+      case "denied_by_profile":
+        return "blocked by profile";
+      default:
+        return status;
+    }
+  }
+
+  function describeToolContract(tool) {
+    const parts = [];
+    if (tool.metadata?.parallel_safe) {
+      parts.push("Safe to batch with other read-only parallel-safe tools.");
+    } else {
+      parts.push("Run sequentially.");
+    }
+    if (tool.metadata?.mutates_state) {
+      parts.push("Changes state or host environment.");
+    } else {
+      parts.push("Read-only from runtime perspective.");
+    }
+    if (tool.name === "shell.run" || tool.name === "shell.session" || tool.name === "shell.exec") {
+      parts.push("Model shell use in `assist` can be session-granted by `allow-all-cmd`; `observe` stays blocked.");
+    }
+    return parts.join(" ");
   }
 
   function renderHeaderRows(container, headers = {}) {
@@ -1211,12 +3295,54 @@
     renderHeaderRows(anthropicHeadersList, preset.headers || {});
   }
 
+  function readParallelInspectCalls() {
+    const paths = parallelInspectPathsInput.value
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const startLineRaw = parallelInspectStartLineInput.value.trim();
+    const endLineRaw = parallelInspectEndLineInput.value.trim();
+    const startLine = startLineRaw ? Number(startLineRaw) : null;
+    const endLine = endLineRaw ? Number(endLineRaw) : null;
+    return paths.map((path) => {
+      const args = { path };
+      if (Number.isFinite(startLine) && startLine > 0) {
+        args.start_line = startLine;
+      }
+      if (Number.isFinite(endLine) && endLine > 0) {
+        args.end_line = endLine;
+      }
+      return {
+        name: "workspace.read",
+        arguments: args,
+      };
+    });
+  }
+
   async function bootstrap() {
     const fallbackTransport = window.__YUE_TRANSPORT__ || createMockTransport();
     const invoke = await waitForTauriInvoke(window);
-    bridgeCommands = invoke ? createTauriBridgeCommands(invoke) : null;
+    const browserBridge = invoke ? null : await detectBrowserBridge();
+    bridgeCommands = invoke
+      ? createTauriBridgeCommands(invoke)
+      : browserBridge;
     usingNativeBridge = Boolean(bridgeCommands);
-    client = new CoreProtocolClient(invoke ? createTauriTransport(invoke) : fallbackTransport);
+    client = new CoreProtocolClient(
+      invoke
+        ? createTauriTransport(invoke)
+        : bridgeCommands
+          ? createBrowserBridgeTransport()
+          : fallbackTransport,
+    );
+
+    try {
+      const savedScope = window.localStorage?.getItem("yue.desktop.configScope");
+      if (savedScope && configScopeSelect) {
+        configScopeSelect.value = savedScope;
+      }
+    } catch {
+      // no-op
+    }
 
     if (bridgeCommands) {
       pendingRuntimeInfo = await bridgeCommands.runtimeInfo();
@@ -1235,12 +3361,17 @@
     state = applyDesktopSnapshot(state, snapshot);
     const attached = await client.desktopAttach(sessionId, { surface: "desktop-runtime" });
     state = applyDesktopSnapshot(state, attached.state);
-    state = applyProviderNames(state, await client.listProviders());
-    state = applyProviderHealth(state, await client.providersHealth());
-    state = applyConversationSettings(state, await client.getConversationSettings());
-    state = applyOpenAICompatibleSettings(state, await client.getOpenAICompatibleSettings());
-    state = applyAnthropicMessagesSettings(state, await client.getAnthropicMessagesSettings());
+    await refreshProviderConfigurationState();
+    await refreshActiveProviderCatalog({ draft: state.activeProviderDraft });
     state = applyPendingApprovals(state, await client.listPendingApprovals());
+    state = applyToolActivitySnapshot(state, await client.getToolActivitySnapshot());
+    state = applyToolsCatalog(state, await client.listTools());
+    state = applyAllowAllCmdGrant(state, await client.getAllowAllCmd(sessionId));
+    syncConfigScopeFromProvider(
+      state.conversationSettings?.routes?.chat?.provider ||
+        state.conversationSettings?.default_provider ||
+        "",
+    );
 
     if (bridgeCommands) {
       pendingRuntimeInfo = await bridgeCommands.runtimeInfo();
@@ -1263,6 +3394,77 @@
     }
   }
 
+  async function submitParallelInspect() {
+    const calls = readParallelInspectCalls();
+    if (calls.length === 0) {
+      state = applyParallelInspectStatus(state, "Add at least one workspace path");
+      render();
+      return;
+    }
+    state = applyParallelInspectStatus(
+      state,
+      `Running parallel inspect for ${calls.length} path${calls.length === 1 ? "" : "s"}...`,
+    );
+    render();
+    try {
+      const result = await client.invokeMany(calls, {
+        parallel: true,
+        actor: "desktop-ui",
+        sessionId,
+      });
+      const inspectResults = (result.results || []).map((item) => ({
+        tool_name: item.tool_name,
+        status: item.status,
+        path: item.output?.path || "",
+        content: item.output?.content || "",
+        start_line: item.output?.start_line || null,
+        end_line: item.output?.end_line || null,
+        total_lines: item.output?.total_lines || null,
+        returned_lines: item.output?.returned_lines || null,
+        truncated: Boolean(item.output?.truncated),
+        error: item.error || "",
+      }));
+      state = applyParallelInspectResults(state, inspectResults);
+      const sections = (result.results || []).map((item) => {
+        const output = item.output || {};
+        return `# ${output.path || item.tool_name}\n${output.content || JSON.stringify(output, null, 2)}`;
+      });
+      state = appendMessage(
+        state,
+        createMessage("assistant", sections.join("\n\n")),
+      );
+      state = applyParallelInspectStatus(
+        state,
+        `Parallel inspect completed for ${calls.length} path${calls.length === 1 ? "" : "s"}`,
+      );
+    } catch (error) {
+      state = applyParallelInspectStatus(
+        state,
+        `Parallel inspect failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    render();
+  }
+
+  async function updateAllowAllCmd(allowed) {
+    state = applyAllowAllCmdStatus(
+      state,
+      `${allowed ? "Enabling" : "Disabling"} session shell grant...`,
+    );
+    render();
+    try {
+      const grant = await client.setAllowAllCmd(sessionId, allowed, "desktop-ui");
+      state = applyAllowAllCmdGrant(state, grant);
+    } catch (error) {
+      allowAllCmdToggle.checked = !allowed;
+      state = applyAllowAllCmdStatus(
+        state,
+        `Shell grant update failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    render();
+  }
+
   async function toggleConsole(command) {
     const payload = await client.desktopCommand(command, undefined, sessionId);
     state = applyDesktopSnapshot(state, payload.state);
@@ -1274,16 +3476,24 @@
       const conversation = await client.createConversation();
       state = setConversationId(state, conversation.id);
     }
-    state = appendMessage(state, createMessage("user", text));
+    state = appendMessage(state, {
+      ...createMessage("user", text),
+      kind: "user_turn",
+      conversation_id: state.conversationId,
+    });
     render();
     await client.desktopCommand("presence.set", "thinking", sessionId);
     state = applyDesktopSnapshot(state, await client.desktopState());
     render();
     const response = await client.sendConversationMessage(state.conversationId, text);
+    state = linkLatestUserMessageToRun(state, response.run_id, state.conversationId);
     if (!usingNativeBridge) {
       state = appendMessage(state, {
         role: "assistant",
         text: response.message.text || response.message.content || "",
+        kind: "assistant_turn",
+        run_id: response.run_id || null,
+        conversation_id: state.conversationId,
       });
     }
     const after = await client.desktopCommand("presence.set", "idle", sessionId);
@@ -1298,8 +3508,13 @@
     );
     render();
     try {
-      await client.respondApproval(approvalId, approved);
+      state = applyToolActivityStatus(state, approved ? "Approving tool..." : "Denying tool...");
+      const response = await client.respondApproval(approvalId, approved);
       state = applyApprovalResponse(state, approvalId);
+      state = applyCoreEvent(state, {
+        topic: "approval.responded",
+        payload: response,
+      });
       state = applyApprovalStatus(
         state,
         approved ? "Approval granted" : "Approval denied",
@@ -1308,6 +3523,140 @@
       state = applyApprovalStatus(
         state,
         `Approval update failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    render();
+  }
+
+  function readActiveProviderDraftFromDom() {
+    const kind = activeProviderKindSelect?.value?.trim() || "llama.cpp";
+    const selectedModel = activeProviderModelInput?.value?.trim() || "";
+    return {
+      kind,
+      provider_name: activeProviderNameInput.value.trim(),
+      model: selectedModel,
+      api_key_env: activeProviderApiKeyEnvInput.value.trim(),
+      host: activeProviderHostInput.value.trim(),
+      port: Number(activeProviderPortInput.value),
+      base_url: activeProviderBaseUrlInput.value.trim(),
+      anthropic_version: activeProviderAnthropicVersionInput.value.trim(),
+      timeout_seconds: Number(activeProviderTimeoutInput.value),
+      health_timeout_seconds: Number(activeProviderHealthTimeoutInput.value),
+      temperature: Number(activeProviderTemperatureInput.value),
+      max_tokens: Number(activeProviderMaxTokensInput.value),
+    };
+  }
+
+  function syncActiveProviderDraftFromDom(options = {}) {
+    state = applyActiveProviderDraft(state, readActiveProviderDraftFromDom(), options);
+    return state.activeProviderDraft;
+  }
+
+  async function refreshActiveProviderCatalog({ draft = null } = {}) {
+    const providerDraft = draft || state.activeProviderDraft || readActiveProviderDraftFromDom();
+    try {
+      const catalog = await client.getActiveProviderCatalog({ provider: providerDraft });
+      state = applyActiveProviderCatalog(state, catalog);
+      const nextDraft = {
+        ...providerDraft,
+        model: catalog.selected_model || providerDraft.model || "",
+      };
+      state = applyActiveProviderDraft(state, nextDraft, {
+        dirty: state.activeProviderDraftDirty,
+      });
+    } catch (error) {
+      state = applyActiveProviderCatalog(state, {
+        kind: providerDraft.kind,
+        provider_name: providerDraft.provider_name,
+        models: [],
+        selected_model: providerDraft.model || "",
+        reachable: false,
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  async function ensureActiveProviderModelSelection() {
+    const draft = syncActiveProviderDraftFromDom({ dirty: true });
+    if (draft.model) {
+      return draft;
+    }
+    await refreshActiveProviderCatalog({ draft });
+    const hydratedDraft = state.activeProviderDraft || draft;
+    if (!hydratedDraft.model) {
+      throw new Error("No model discovered for the selected provider");
+    }
+    return hydratedDraft;
+  }
+
+  function readActiveProviderSettingsPayload(draft = null) {
+    const providerDraft = draft || state.activeProviderDraft || readActiveProviderDraftFromDom();
+    const kind = providerDraft.kind || "llama.cpp";
+    const payload = {
+      provider: {
+        kind,
+        provider_name: providerDraft.provider_name,
+        model: providerDraft.model,
+        api_key_env: providerDraft.api_key_env,
+        base_url: providerDraft.base_url,
+        timeout_seconds: providerDraft.timeout_seconds,
+        health_timeout_seconds: providerDraft.health_timeout_seconds,
+        temperature: providerDraft.temperature,
+        max_tokens: providerDraft.max_tokens,
+      },
+    };
+    if (isLocalProviderKind(kind)) {
+      payload.provider.host = providerDraft.host;
+      payload.provider.port = providerDraft.port;
+    }
+    if (kind === "anthropic") {
+      payload.provider.anthropic_version = providerDraft.anthropic_version;
+    }
+    return payload;
+  }
+
+  async function refreshProviderConfigurationState() {
+    state = applyConversationSettings(state, await client.getConversationSettings());
+    state = applyActiveProviderSettings(state, await client.getActiveProviderSettings());
+    state = applyOpenAICompatibleSettings(state, await client.getOpenAICompatibleSettings());
+    state = applyAnthropicMessagesSettings(state, await client.getAnthropicMessagesSettings());
+    state = applyProviderNames(state, await client.listProviders());
+    state = applyProviderHealth(state, await client.providersHealth());
+  }
+
+  async function submitActiveProviderSettings({ persist = false } = {}) {
+    const draft = await ensureActiveProviderModelSelection();
+    const payload = readActiveProviderSettingsPayload(draft);
+    state = applyActiveProviderStatus(
+      state,
+      persist ? "Saving active provider..." : "Applying active provider...",
+    );
+    render();
+    try {
+      const updated = persist
+        ? await client.saveActiveProviderSettings(payload)
+        : await client.updateActiveProviderSettings(payload);
+      state = applyActiveProviderSettings(state, updated);
+      state = applyActiveProviderDraft(
+        state,
+        createActiveProviderDraft(updated.active_provider, updated.provider_options || []),
+        { dirty: false },
+      );
+      await refreshProviderConfigurationState();
+      await refreshActiveProviderCatalog({ draft: state.activeProviderDraft });
+      state = applyActiveProviderStatus(
+        state,
+        persist ? "Active provider saved" : "Active provider applied",
+      );
+      state = applySettingsStatus(
+        state,
+        persist ? "Conversation routes saved through active provider" : "Conversation routes updated through active provider",
+      );
+    } catch (error) {
+      state = applyActiveProviderStatus(
+        state,
+        `${persist ? "Save" : "Update"} failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
     render();
@@ -1435,7 +3784,7 @@
       provider_name: providerName,
       backend: "custom",
       base_url: "http://127.0.0.1:8080/v1",
-      model: "replace-me",
+      model: "Qwen3-4B-Q5_K_M.gguf",
       api_key_env: "",
       timeout_seconds: 120,
       health_timeout_seconds: 5,
@@ -1680,6 +4029,87 @@
     await sendMessage(text);
   });
 
+  opsDrawerButton?.addEventListener("click", () => {
+    state = applyActiveDrawer(state, state.activeDrawer === "ops" ? null : "ops");
+    render();
+  });
+
+  configDrawerButton?.addEventListener("click", () => {
+    state = applyActiveDrawer(state, state.activeDrawer === "config" ? null : "config");
+    render();
+  });
+
+  consoleDrawerBackdrop?.addEventListener("click", () => {
+    state = applyActiveDrawer(state, null);
+    render();
+  });
+
+  for (const button of drawerCloseButtons) {
+    button.addEventListener("click", () => {
+      state = applyActiveDrawer(state, null);
+      render();
+    });
+  }
+
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    for (const controller of customSelectControllers.values()) {
+      if (!controller.wrapper.contains(target)) {
+        controller.close();
+      }
+    }
+  });
+
+  activeProviderKindSelect?.addEventListener("change", () => {
+    const nextKind = activeProviderKindSelect.value;
+    if (!nextKind) {
+      return;
+    }
+    state = applyActiveProviderDraft(state, createDefaultActiveProviderDraft(nextKind), { dirty: true });
+    state = applyActiveProviderCatalog(state, null);
+    render();
+    void refreshActiveProviderCatalog({ draft: state.activeProviderDraft }).then(render);
+  });
+
+  activeProviderForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await submitActiveProviderSettings();
+  });
+
+  activeProviderSaveButton?.addEventListener("click", async () => {
+    await submitActiveProviderSettings({ persist: true });
+  });
+
+  activeProviderModelRefreshButton?.addEventListener("click", async () => {
+    syncActiveProviderDraftFromDom({ dirty: true });
+    state = applyActiveProviderStatus(state, "Refreshing model catalog...");
+    render();
+    await refreshActiveProviderCatalog({ draft: state.activeProviderDraft });
+    state = applyActiveProviderStatus(state, "Model catalog refreshed");
+    render();
+  });
+
+  [
+    activeProviderNameInput,
+    activeProviderModelInput,
+    activeProviderApiKeyEnvInput,
+    activeProviderHostInput,
+    activeProviderPortInput,
+    activeProviderBaseUrlInput,
+    activeProviderAnthropicVersionInput,
+    activeProviderTimeoutInput,
+    activeProviderHealthTimeoutInput,
+    activeProviderTemperatureInput,
+    activeProviderMaxTokensInput,
+  ].forEach((field) => {
+    field?.addEventListener("input", () => {
+      syncActiveProviderDraftFromDom({ dirty: true });
+    });
+    field?.addEventListener("change", () => {
+      syncActiveProviderDraftFromDom({ dirty: true });
+    });
+  });
+
   settingsForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     await submitConversationSettings();
@@ -1691,6 +4121,7 @@
 
   providerConfigSelect.addEventListener("change", () => {
     state = selectProviderConfig(state, providerConfigSelect.value);
+    setConfigScope("openai");
     render();
   });
 
@@ -1723,6 +4154,7 @@
 
   anthropicConfigSelect.addEventListener("change", () => {
     state = selectAnthropicConfig(state, anthropicConfigSelect.value);
+    setConfigScope("anthropic");
     render();
   });
 
@@ -1752,6 +4184,31 @@
       applyAnthropicPreset(ANTHROPIC_PRESETS[button.dataset.anthropicPreset]);
     });
   }
+
+  allowAllCmdToggle.addEventListener("change", async () => {
+    await updateAllowAllCmd(allowAllCmdToggle.checked);
+  });
+
+  parallelInspectForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await submitParallelInspect();
+  });
+
+  configScopeSelect?.addEventListener("change", () => {
+    applyConfigScopeView();
+  });
+
+  defaultProviderInput?.addEventListener("change", () => {
+    syncConfigScopeFromProvider(defaultProviderInput.value);
+  });
+
+  chatProviderInput?.addEventListener("change", () => {
+    syncConfigScopeFromProvider(chatProviderInput.value);
+  });
+
+  codingProviderInput?.addEventListener("change", () => {
+    syncConfigScopeFromProvider(codingProviderInput.value);
+  });
 
   window.addEventListener("beforeunload", async () => {
     try {

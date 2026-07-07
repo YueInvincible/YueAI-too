@@ -22,10 +22,10 @@ export function createMockTransport() {
   const state = defaultState();
   let conversationCounter = 0;
   let conversationSettings = {
-    default_provider: "fake.echo",
+    default_provider: "localhost.chat",
     routes: {
-      chat: { provider: "fake.echo", prompt_profile: "default" },
-      coding_agent: { provider: "fake.echo", prompt_profile: "coding_agent" },
+      chat: { provider: "localhost.chat", prompt_profile: "default" },
+      coding_agent: { provider: "localhost.chat", prompt_profile: "coding_agent" },
     },
     prompt_profiles: {
       default: {
@@ -45,19 +45,67 @@ export function createMockTransport() {
   let openaiCompatibleSettings = {
     providers: [
       {
-        provider_name: "ollama.chat",
-        backend: "ollama",
-        base_url: "http://127.0.0.1:11434/v1",
-        model: "qwen2.5:7b-instruct",
+        provider_name: "localhost.chat",
+        backend: "llama.cpp",
+        base_url: "http://127.0.0.1:8080/v1",
+        model: "Qwen3-4B-Q5_K_M.gguf",
         api_key_env: "",
         timeout_seconds: 120,
         health_timeout_seconds: 5,
-        temperature: 0.6,
-        max_tokens: 1024,
+        temperature: 0.7,
+        max_tokens: 2048,
         headers: {},
       },
     ],
   };
+  function buildActiveProviderSettings() {
+    const provider = openaiCompatibleSettings.providers[0] || {
+      provider_name: "localhost.chat",
+      backend: "llama.cpp",
+      base_url: "http://127.0.0.1:8080",
+      model: "Qwen3-4B-Q5_K_M.gguf",
+      api_key_env: "",
+      timeout_seconds: 120,
+      health_timeout_seconds: 5,
+      temperature: 0.7,
+      max_tokens: 2048,
+      headers: {},
+    };
+    const kind = provider.backend === "anthropic" ? "anthropic" : provider.backend;
+    return {
+      single_provider_mode: true,
+      active_provider: {
+        kind,
+        label: kind === "llama.cpp" ? "Local llama.cpp" : provider.backend,
+        family: ["llama.cpp", "ollama", "lmstudio", "custom"].includes(kind) ? "local" : "cloud",
+        plugin_id: kind === "anthropic" ? "anthropic.messages" : "openai.compat",
+        provider_name: provider.provider_name,
+        backend: provider.backend,
+        base_url: provider.base_url,
+        host: "127.0.0.1",
+        port: 8080,
+        model: provider.model,
+        api_key_env: provider.api_key_env || "",
+        timeout_seconds: provider.timeout_seconds,
+        health_timeout_seconds: provider.health_timeout_seconds,
+        temperature: provider.temperature,
+        max_tokens: provider.max_tokens,
+        headers: provider.headers || {},
+        anthropic_version: provider.anthropic_version || "2023-06-01",
+      },
+      provider_options: [
+        { kind: "llama.cpp", label: "Local llama.cpp" },
+        { kind: "ollama", label: "Ollama" },
+        { kind: "lmstudio", label: "LM Studio" },
+        { kind: "custom", label: "Custom OpenAI-compatible" },
+        { kind: "openai", label: "OpenAI" },
+        { kind: "google", label: "Google AI" },
+        { kind: "openrouter", label: "OpenRouter" },
+        { kind: "anthropic", label: "Anthropic" },
+      ],
+      conversation: JSON.parse(JSON.stringify(conversationSettings)),
+    };
+  }
   let anthropicMessagesSettings = {
     providers: [
       {
@@ -88,6 +136,74 @@ export function createMockTransport() {
         command: "git push origin feature/desktop-bridge",
       },
       created_at: now(),
+    },
+  ];
+  let allowAllCmdGrant = {
+    session_id: "desktop-preview",
+    allow_all_cmd: false,
+    updated_by: "none",
+  };
+  let toolActivitySnapshot = {
+    items: [
+      {
+        run_id: "mock-run-1",
+        conversation_id: "mock-conversation-1",
+        tool_call_id: "mock-call-1",
+        request_id: "mock-request-1",
+        tool_name: "shell.run",
+        arguments: {
+          command: "git push origin feature/desktop-bridge",
+        },
+        status: "waiting_approval",
+        output: null,
+        error: "Command requires explicit approval",
+        approval_id: "mock-approval-1",
+      },
+    ],
+    status: "Approval requested for shell.run",
+  };
+  const toolCatalog = [
+    {
+      name: "workspace.read",
+      description: "Read a UTF-8 workspace file with line-range metadata.",
+      input_schema: {},
+      capability: "file.read",
+      risk: "low",
+      plugin_id: "core",
+      output_kind: "file_content",
+      metadata: {
+        output_kind: "file_content",
+        parallel_safe: true,
+        mutates_state: false,
+      },
+    },
+    {
+      name: "workspace.grep",
+      description: "Search workspace file contents by literal string or regex.",
+      input_schema: {},
+      capability: "file.read",
+      risk: "low",
+      plugin_id: "core",
+      output_kind: "structured",
+      metadata: {
+        output_kind: "structured",
+        parallel_safe: true,
+        mutates_state: false,
+      },
+    },
+    {
+      name: "shell.run",
+      description: "Run a shell command with explicit cwd, timeout, and risk metadata.",
+      input_schema: {},
+      capability: "shell.execute",
+      risk: "high",
+      plugin_id: "core",
+      output_kind: "command_output",
+      metadata: {
+        output_kind: "command_output",
+        parallel_safe: false,
+        mutates_state: true,
+      },
     },
   ];
 
@@ -142,24 +258,82 @@ export function createMockTransport() {
           pendingApprovals = pendingApprovals.filter(
             (item) => item.approval_id !== params.approval_id,
           );
+          toolActivitySnapshot = {
+            items: toolActivitySnapshot.items.map((item) =>
+              item.approval_id === params.approval_id
+                ? {
+                    ...item,
+                    status: params.approved ? "approved_pending_run" : "denied_by_user",
+                    error: params.approved ? null : "Denied by user approval",
+                  }
+                : item,
+            ),
+            status: params.approved ? `Approved ${match.tool_name}` : `Denied ${match.tool_name}`,
+          };
           return {
             ...JSON.parse(JSON.stringify(match)),
             approved: Boolean(params.approved),
           };
         }
+        case "tool.activity.snapshot":
+          return JSON.parse(JSON.stringify(toolActivitySnapshot));
+        case "tools.list":
+          return JSON.parse(JSON.stringify(toolCatalog));
+        case "tools.invoke_many":
+          return {
+            parallel: Boolean(params.parallel),
+            results: (params.calls || []).map((call, index) => ({
+              request_id: `mock-batch-${index + 1}`,
+              tool_name: call.name,
+              status: "succeeded",
+              output:
+                call.name === "workspace.read"
+                  ? {
+                      path: call.arguments?.path || "",
+                      content: `Mock content for ${call.arguments?.path || "unknown path"}`,
+                      start_line: call.arguments?.start_line || 1,
+                      end_line: call.arguments?.end_line || 1,
+                      total_lines: 1,
+                      returned_lines: 1,
+                      truncated: false,
+                    }
+                  : {
+                      ok: true,
+                    },
+              error: null,
+            })),
+          };
+        case "permissions.allow_all_cmd.get":
+          if (params.session_id !== allowAllCmdGrant.session_id) {
+            return {
+              session_id: params.session_id,
+              allow_all_cmd: false,
+              updated_by: "none",
+            };
+          }
+          return JSON.parse(JSON.stringify(allowAllCmdGrant));
+        case "permissions.allow_all_cmd.set":
+          allowAllCmdGrant = {
+            session_id: params.session_id,
+            allow_all_cmd: Boolean(params.allowed),
+            updated_by: params.actor || "desktop-ui",
+          };
+          return JSON.parse(JSON.stringify(allowAllCmdGrant));
         case "providers.list":
           return [
-            "fake.echo",
             ...openaiCompatibleSettings.providers.map((item) => item.provider_name),
             ...anthropicMessagesSettings.providers.map((item) => item.provider_name),
           ];
         case "providers.health":
           return [
             {
-              provider: "fake.echo",
+              provider: "localhost.chat",
               ok: true,
               reachable: true,
-              backend: "fake",
+              backend: "llama.cpp",
+              model: "Qwen3-4B-Q5_K_M.gguf",
+              model_available: true,
+              models: ["Qwen3-4B-Q5_K_M.gguf"],
             },
           ];
         case "settings.conversation.get":
@@ -195,6 +369,81 @@ export function createMockTransport() {
             ),
           );
           return JSON.parse(JSON.stringify(anthropicMessagesSettings));
+        case "settings.providers.active.get":
+          return JSON.parse(JSON.stringify(buildActiveProviderSettings()));
+        case "settings.providers.active.catalog": {
+          const next = JSON.parse(JSON.stringify((params && params.provider) || {}));
+          const kind = String(next.kind || next.backend || "llama.cpp");
+          const modelsByKind = {
+            "llama.cpp": ["Qwen3-4B-Q5_K_M.gguf"],
+            ollama: ["qwen2.5:7b-instruct", "qwen2.5-coder:7b"],
+            lmstudio: ["openai/gpt-oss-20b", "qwen2.5-coder-7b-instruct"],
+            custom: ["custom-model"],
+            openai: ["gpt-4.1-mini", "gpt-4.1"],
+            google: ["gemini-2.5-flash", "gemini-2.5-pro"],
+            openrouter: ["openai/gpt-4.1-mini", "anthropic/claude-sonnet-4"],
+            anthropic: ["claude-sonnet-4-20250514", "claude-3-7-sonnet-latest"],
+          };
+          const models = modelsByKind[kind] || [];
+          return {
+            kind,
+            provider_name: next.provider_name || `${kind}.chat`,
+            models,
+            selected_model: next.model || models[0] || "",
+            reachable: true,
+            ok: true,
+            error: null,
+            auto_selected: !next.model && Boolean(models[0]),
+          };
+        }
+        case "settings.providers.active.update": {
+          const next = JSON.parse(JSON.stringify((params && params.provider) || {}));
+          const kind = String(next.kind || next.backend || "llama.cpp");
+          const backend = kind === "anthropic" ? "anthropic" : kind;
+          const baseUrl = next.base_url || (
+            kind === "llama.cpp"
+              ? `http://${next.host || "127.0.0.1"}:${next.port || 8080}`
+              : ["ollama", "lmstudio", "custom"].includes(kind)
+                ? `http://${next.host || "127.0.0.1"}:${next.port || (kind === "ollama" ? 11434 : kind === "lmstudio" ? 1234 : 8080)}/v1`
+                : kind === "anthropic"
+                  ? "https://api.anthropic.com"
+                  : kind === "google"
+                    ? "https://generativelanguage.googleapis.com/v1beta/openai"
+                    : kind === "openrouter"
+                      ? "https://openrouter.ai/api/v1"
+                      : "https://api.openai.com/v1"
+          );
+          const provider = {
+            provider_name: next.provider_name || `${kind}.chat`,
+            backend,
+            base_url: baseUrl,
+            model: next.model || "mock-model",
+            api_key_env: next.api_key_env || "",
+            timeout_seconds: Number(next.timeout_seconds || 120),
+            health_timeout_seconds: Number(next.health_timeout_seconds || 5),
+            temperature: Number(next.temperature || 0.7),
+            max_tokens: Number(next.max_tokens || 1024),
+            headers: {},
+          };
+          if (kind === "anthropic") {
+            anthropicMessagesSettings = {
+              providers: [
+                {
+                  ...provider,
+                  anthropic_version: next.anthropic_version || "2023-06-01",
+                },
+              ],
+            };
+          } else {
+            openaiCompatibleSettings = {
+              providers: [provider],
+            };
+          }
+          conversationSettings.default_provider = provider.provider_name;
+          conversationSettings.routes.chat.provider = provider.provider_name;
+          conversationSettings.routes.coding_agent.provider = provider.provider_name;
+          return JSON.parse(JSON.stringify(buildActiveProviderSettings()));
+        }
         case "conversations.create":
           conversationCounter += 1;
           return { id: `mock-conversation-${conversationCounter}` };

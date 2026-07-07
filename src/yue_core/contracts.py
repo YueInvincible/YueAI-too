@@ -37,6 +37,13 @@ class RiskLevel(str, Enum):
     CRITICAL = "critical"
 
 
+class ToolOutputKind(str, Enum):
+    STRUCTURED = "structured"
+    COMMAND_OUTPUT = "command_output"
+    FILE_CONTENT = "file_content"
+    PLAIN_TEXT = "plain_text"
+
+
 class PermissionOutcome(str, Enum):
     ALLOW = "allow"
     DENY = "deny"
@@ -122,6 +129,34 @@ class ToolSpec:
     risk: RiskLevel = RiskLevel.LOW
     timeout_seconds: float | None = None
     plugin_id: str = "core"
+    output_kind: ToolOutputKind = ToolOutputKind.STRUCTURED
+    metadata: Mapping[str, JsonValue] = field(default_factory=dict)
+
+    def runtime_metadata(self) -> dict[str, JsonValue]:
+        return {
+            **dict(self.metadata),
+            "output_kind": self.output_kind.value,
+        }
+
+    def model_description(self) -> str:
+        hints: list[str] = []
+        if self.output_kind is ToolOutputKind.COMMAND_OUTPUT:
+            hints.append(
+                "Returns sanitized command-style output; long output may be truncated."
+            )
+        elif self.output_kind is ToolOutputKind.FILE_CONTENT:
+            hints.append(
+                "Returns file content with line-range metadata; prefer narrow ranges for large files."
+            )
+        if self.metadata.get("parallel_safe") is True:
+            hints.append(
+                "If independent from other reads, this tool is safe to call in parallel."
+            )
+        if self.metadata.get("mutates_state") is True:
+            hints.append("Avoid parallel calls with other state-changing tools.")
+        if not hints:
+            return self.description
+        return f"{self.description} {' '.join(hints)}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,6 +165,7 @@ class ToolRequest:
     arguments: Mapping[str, Any]
     actor: str = "user"
     session_id: str | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
     id: str = field(default_factory=lambda: str(uuid4()))
     created_at: datetime = field(default_factory=utc_now)
 

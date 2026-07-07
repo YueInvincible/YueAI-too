@@ -57,6 +57,11 @@ Desktop shell UI
 - `desktop/src/state.js`
   - source of truth cho desktop view-state shape.
   - neu UI can render them state moi, phai them vao day truoc.
+  - panel tool control hien dung state rieng cho:
+    - session shell grant (`allowAllCmd*`);
+    - parallel inspect status/results;
+    - tool catalog metadata.
+    - conversation tool activity timeline.
 
 - `desktop/src/protocol.js`
   - source of truth cho API methods ma frontend duoc goi.
@@ -69,11 +74,30 @@ Desktop shell UI
 - `desktop/src/app.js`
   - module-based desktop bootstrap va render logic.
   - dung de doc nhanh logic hien tai.
+  - hien dang render:
+    - `Run inspector` gom approval + conversation tool activity;
+    - message log group theo `run_id`;
+    - session `allow-all-cmd`;
+    - tool contract badges/notes;
+    - parallel inspect ket qua theo tung call.
+  - can nho: runtime shell moi nhat dang di truoc o `runtime.js`; neu sua desktop behavior, phai check drift.
 
 - `desktop/src/runtime.js`
   - packaged/non-dev runtime script dang duoc `index.html` nap truc tiep.
   - day la runtime thuc te cua shell trong packaged path.
-  - bat buoc giu dong bo logic voi `app.js`.
+  - shell chat-first moi nhat nam o day:
+    - `Ops` va `Config` drawer;
+    - provider health/tool contract da duoc dua vao `Ops`;
+    - khung chat frame co dinh, khong con che do `Focus chat`.
+  - bat buoc giu dong bo logic voi `app.js` hoac ghi ro cho note neu runtime path di truoc.
+
+- `desktop/src-tauri/src/bridge.rs`
+  - bridge native spawn `python -m yue_core serve` cho desktop shell.
+  - runtime startup gio uu tien config theo thu tu:
+    - `YUE_CORE_CONFIG`
+    - `config.local.toml`
+    - `config.example.toml`
+    - roi moi fallback ve default core settings.
 
 ### Core
 
@@ -90,14 +114,29 @@ Desktop shell UI
     - tool-call loop;
     - cancel/shutdown;
     - prompt-profile system injection.
+  - `conversation.tool.requested` hien da carry them `request_id` de desktop co the map approval/tool lifecycle ngay ca truoc khi `tool.started`.
+- `coding_agent` request gio duoc cat gon tool catalog ngay tai runtime: uu tien surface alias on dinh `workspace_read` / `workspace_edit` / `shell_run` / `shell_session` / `git_diff` / `todo_update` / `ask_user_approval` thay vi dua ca lop tool cu.
 
 - `src/yue_core/config.py`
   - source of truth cho shape config.
   - route va prompt profile deu duoc validate tai day.
+  - CLI/core van giu default an toan neu khong truyen `--config`; desktop native bridge la noi dang tu chon config repo truoc.
 
 - `src/yue_core/transport.py`
   - source of truth cho JSONL method surface.
   - frontend/desktop khong goi truc tiep `YueCore`; no di qua file nay.
+  - tool/permission methods moi da co:
+    - `tools.list`
+    - `tools.invoke_many`
+    - `permissions.allow_all_cmd.get`
+    - `permissions.allow_all_cmd.set`
+  - event forwarding hien forward:
+    - `conversation.*`
+    - `desktop.*`
+    - `approval.*`
+    - `tool.*`
+  - `tools.list` gio tra ca `model_description` ngoai `description` de agent client nhan du hint ve scrub/parallel/risk contract.
+- `tools.list` cung nhan `provider_role` tuy chon de lay dung tool catalog da duoc policy filter cho `coding_agent`; role nay hien uu tien alias underscore, con ten dotted legacy van duoc giu cho transport/UI flow cu.
 
 - `src/yue_core/openai_compat.py`
   - source of truth cho adapter provider OpenAI-compatible.
@@ -111,20 +150,33 @@ Desktop shell UI
 
 - `src/yue_core/permissions.py`
   - source of truth cho permission profile va actor-aware tool policy.
+  - session grant `allow-all-cmd` gio duoc gate ngay tai permission layer: `observe` khong bat duoc, `model` khong tu set duoc.
 
 - `src/yue_core/tools.py`
   - source of truth cho tool registry/executor/audit/event flow.
+  - `ToolExecutor` hien co them lop post-process cho command-style tool result de runtime scrub lai `stdout/stderr/status/diff` truoc khi dua vao event/transport/agent.
+  - runtime scrub nay gio dua theo `ToolSpec.output_kind` thay vi hardcode theo ten tool.
+  - `execute_many(..., parallel=True)` chi cho batch tool read-only khi tat ca tool specs co `metadata.parallel_safe = true` va `metadata.mutates_state = false`.
+  - `tool.started` / `tool.finished` event payload da carry them correlation fields tu `ToolRequest.metadata` nhu:
+    - `run_id`
+    - `conversation_id`
+    - `tool_call_id`
 
 - `src/yue_core/builtin_tools.py`
   - source of truth cho tool surface built-in cua agent.
-  - command-style output (`shell.exec`, `git.*`, `package.install`, `process.kill`) hien duoc runtime scrub ANSI/mau, gom blank line lien tiep, va head-tail truncate truoc khi tra ve agent.
-  - `file.read` hien tra them metadata `returned_lines` + `truncated` khi doan doc qua dai.
+  - command-style output (`shell.exec`, `shell.run`, `shell.session`, `git.*`, `package.install`, `process.kill`) hien duoc runtime scrub ANSI/mau, gom blank line lien tiep, va head-tail truncate truoc khi tra ve agent.
+  - `file.read` / `workspace.read` gio cung di qua runtime scrub cho `content`: strip ANSI, collapse blank lines lien tiep, giu metadata `returned_lines` + `truncated`.
+  - `file.search` / `workspace.grep` gio scrub tung `match.line` va danh dau `line_truncated` neu can.
+
+- `src/yue_core/contracts.py`
+  - `ToolSpec` hien co them `output_kind` + `metadata` de khai bao kieu output va execution hints nhu `parallel_safe`, `mutates_state`.
 
 - `src/yue_core/approval_bridge.py`
   - source of truth cho pending approval queue ma desktop/runtime co the list va resolve.
 
 - `src/yue_core/shell_sessions.py`
   - source of truth cho long-lived shell session manager dung boi `shell.session`.
+  - shell argv hien duoc build o che do no-profile/no-rc de giam banner, custom prompt, va ANSI rac truoc khi output duoc scrub.
 
 ## Conversation/provider routing flow
 
@@ -165,6 +217,7 @@ Desktop shell UI
 - `resolve_prompt_profile(...)` quyet dinh prompt profile can dung
 - `_system_instruction(...)` build 1 system message tam thoi
 - `_request_messages(...)` chen system message vao request truoc khi goi provider
+- 1 assistant turn co the phat ra nhieu `tool_calls`; runtime se thuc thi lan luot tung tool call va append tung `tool` message vao history.
 
 Quan trong:
 
@@ -222,6 +275,31 @@ Gioi han quan trong:
   - quick preset Claude API cho `anthropic.messages`
   - custom header editor cho `openai.compat`
   - custom header editor cho `anthropic.messages`
+  - session toggle `allow-all-cmd`
+  - parallel inspect bang `tools.invoke_many`
+  - tool contract panel hien `output_kind`, `parallel_safe`, `mutates_state`
+  - result preview rieng cho tung `workspace.read` call trong parallel inspect
+  - `Run inspector` noi `conversation.tool.requested` + `tool.started` + `approval.pending` + `tool.finished` + `conversation.tool.completed`
+  - `Run inspector` gio group tool/approval item theo `run_id` thay vi chi render list phang
+  - `Run inspector` co them collapse/expand theo run va state nay tach rieng voi message log run groups
+  - moi inspector run group co them action mo run dich trong message log
+  - message log gio append them structured tool-result entry khi `tool.finished` co correlation cua conversation run
+  - message log gio group assistant turn + tool results theo `run_id`; user turn vua gui se duoc backfill `run_id` khi response ve
+  - moi run group trong message log gio co the collapse/expand; jump tu inspector se tu mo run dich neu can
+  - run group header gio co summary badge/co dem co ban: outcome, user/assistant/tool count, issue count
+  - moi run group gio co them summary row trong noi dung: preview assistant turn cuoi va latest tool outcome/error
+  - run summary row gio co them action local-first:
+    - `Copy summary`
+    - `Focus inspector`
+    - `Copy answer`
+    - `Copy tool result`
+    - `Copy run JSON`
+  - approval/tool item co the focus va jump toi assistant turn hoac tool-result lien quan trong message log
+  - phan biet ro hon:
+    - `waiting_approval`
+    - `approved_pending_run`
+    - `denied_by_user`
+    - `denied_by_profile`
 - chua co editor day du cho:
   - `llama.cpp` single-provider path
 
@@ -333,6 +411,11 @@ Frontend methods trong `protocol.js`:
 - `requestApproval`
 - `listPendingApprovals`
 - `respondApproval`
+- `getToolActivitySnapshot`
+- `listTools`
+- `invokeMany`
+- `getAllowAllCmd`
+- `setAllowAllCmd`
 - `createConversation`
 - `sendConversationMessage`
 - `listProviders`
@@ -351,13 +434,17 @@ Core JSONL methods cung da expose tool surface:
 
 - `tools.list`
 - `tools.invoke`
+- `tools.invoke_many`
 - `tools.cancel`
+- `tool.activity.snapshot`
 
 Moi method:
 
 - goi `transport.request(...)`
 - transport serializes envelope JSONL
 - `JsonLineServer.handle_line(...)` xu ly method
+- `tools.list` hien tra them `output_kind` + `metadata` de UI/agent client co the doc runtime hints.
+- `tools.invoke_many` cho phep batch tool calls; neu `parallel = true` thi chi chay song song cho tool co `parallel_safe = true` va `mutates_state = false`.
 
 ### Tu core sang frontend
 
@@ -375,6 +462,33 @@ Topics desktop shell dang de y:
 - `conversation.run.cancelled`
 - `approval.pending`
 - `approval.responded`
+- `permission.grant.updated`
+
+Reconnect bootstrap cho tool activity:
+
+- frontend goi them `tool.activity.snapshot`
+- core tra `items[]` + `status` tu `ToolActivityStore`
+- store nay subscribe:
+  - `conversation.*`
+  - `approval.*`
+  - `tool.*`
+
+Config/runtime startup hien tai:
+
+- `config.example.toml` da duoc canh lai theo huong core workflow local-first:
+  - `permissions.profile = "assist"`
+  - `interactive_approval = true`
+  - `conversation.default_provider = "localhost.chat"`
+  - route `chat` + `coding_agent` mac dinh -> `localhost.chat`
+
+## Luu y trang thai hien tai
+
+- `Run inspector` va message log hien da co nhieu helper state/render moi hon ban note cu:
+  - `collapsedInspectorRunIds`
+  - `groupRunInspectorItems(...)`
+  - `findLatestToolActivityForRun(...)`
+  - run-level actions `Open run`, `Focus inspector`, `Copy summary`, `Copy answer`, `Copy tool result`, `Copy run JSON`
+- Dot UI moi nhat quanh collapse/open-run duoc code xong sau lan verify desktop gan nhat; agent sau neu tiep tuc desktop nen verify lai truoc khi mo rong tiep.
 
 ## Desktop shell bootstrap flow
 
@@ -504,6 +618,7 @@ Doc:
   - `workspace.edit`
   - `workspace.ops`
   - `approval.request`
+  - `ask_user_approval`
   - `shell.run`
   - `shell.session`
   - `todo.update`
@@ -529,7 +644,7 @@ Doc:
   - cac action tren cung ghi audit record rieng ngoai `tool.request` / `tool.result`.
 - Tool surface van chua khop 100% target roadmap:
   - van song song duy tri ca tool cu `file.*` / `shell.exec` de giu tuong thich test va transport hien tai.
-  - ten tool approval hien tai la `approval.request`, chua phai exact string `ask_user_approval` trong roadmap prompt.
+  - approval flow hien co ca `approval.request` va alias `ask_user_approval`; transport/UI van dang dung method `approval.request`.
 - Chua co editor cho plugin provider config chi tiet:
   - `llama.cpp` single-provider path
 - Chua co config manager/source-of-truth rieng cho persistence.

@@ -30,6 +30,18 @@ export function defaultDesktopViewState() {
     selectedAnthropicConfigName: "",
     pendingApprovals: [],
     approvalStatus: "No pending approvals",
+    toolsCatalog: [],
+    toolCatalogStatus: "Tool catalog unavailable",
+    allowAllCmd: false,
+    allowAllCmdUpdatedBy: "none",
+    allowAllCmdStatus: "Session shell grant disabled",
+    parallelInspectStatus: "Parallel inspect idle",
+    parallelInspectResults: [],
+    toolActivity: [],
+    toolActivityStatus: "No active tool run",
+    inspectorSelection: null,
+    collapsedRunIds: [],
+    collapsedInspectorRunIds: [],
   };
 }
 
@@ -51,6 +63,29 @@ export function appendMessage(state, message) {
     ...state,
     messages: [...state.messages, message],
   };
+}
+
+export function linkLatestUserMessageToRun(state, runId, conversationId = null) {
+  if (!runId) {
+    return state;
+  }
+  let linked = false;
+  const messages = [...state.messages].reverse().map((message) => {
+    if (
+      !linked &&
+      message.role === "user" &&
+      !message.run_id
+    ) {
+      linked = true;
+      return {
+        ...message,
+        run_id: runId,
+        conversation_id: conversationId || message.conversation_id || null,
+      };
+    }
+    return message;
+  }).reverse();
+  return linked ? { ...state, messages } : state;
 }
 
 export function setConversationId(state, conversationId) {
@@ -207,42 +242,470 @@ export function applyApprovalStatus(state, approvalStatus) {
   };
 }
 
+export function applyToolsCatalog(state, toolsCatalog = []) {
+  const items = Array.isArray(toolsCatalog)
+    ? JSON.parse(JSON.stringify(toolsCatalog))
+    : [];
+  return {
+    ...state,
+    toolsCatalog: items,
+    toolCatalogStatus:
+      items.length > 0
+        ? `${items.length} tool${items.length === 1 ? "" : "s"} loaded`
+        : "Tool catalog unavailable",
+  };
+}
+
+export function applyToolCatalogStatus(state, toolCatalogStatus) {
+  return {
+    ...state,
+    toolCatalogStatus: toolCatalogStatus || state.toolCatalogStatus,
+  };
+}
+
+export function applyAllowAllCmdGrant(state, grant) {
+  const allowed = Boolean(grant?.allow_all_cmd);
+  const updatedBy = grant?.updated_by || "none";
+  return {
+    ...state,
+    allowAllCmd: allowed,
+    allowAllCmdUpdatedBy: updatedBy,
+    allowAllCmdStatus: allowed
+      ? `Session shell grant enabled by ${updatedBy}`
+      : "Session shell grant disabled",
+  };
+}
+
+export function applyAllowAllCmdStatus(state, allowAllCmdStatus) {
+  return {
+    ...state,
+    allowAllCmdStatus: allowAllCmdStatus || state.allowAllCmdStatus,
+  };
+}
+
+export function applyParallelInspectStatus(state, parallelInspectStatus) {
+  return {
+    ...state,
+    parallelInspectStatus: parallelInspectStatus || state.parallelInspectStatus,
+  };
+}
+
+export function applyParallelInspectResults(state, parallelInspectResults = []) {
+  return {
+    ...state,
+    parallelInspectResults: Array.isArray(parallelInspectResults)
+      ? JSON.parse(JSON.stringify(parallelInspectResults))
+      : [],
+  };
+}
+
+export function applyToolActivityStatus(state, toolActivityStatus) {
+  return {
+    ...state,
+    toolActivityStatus: toolActivityStatus || state.toolActivityStatus,
+  };
+}
+
+export function applyInspectorSelection(state, selection) {
+  return {
+    ...state,
+    inspectorSelection: selection ? JSON.parse(JSON.stringify(selection)) : null,
+  };
+}
+
+export function toggleRunGroupCollapsed(state, runId) {
+  if (!runId) {
+    return state;
+  }
+  const current = new Set(state.collapsedRunIds || []);
+  if (current.has(runId)) {
+    current.delete(runId);
+  } else {
+    current.add(runId);
+  }
+  return {
+    ...state,
+    collapsedRunIds: [...current],
+  };
+}
+
+export function expandRunGroup(state, runId) {
+  if (!runId || !(state.collapsedRunIds || []).includes(runId)) {
+    return state;
+  }
+  return {
+    ...state,
+    collapsedRunIds: (state.collapsedRunIds || []).filter((item) => item !== runId),
+  };
+}
+
+export function toggleInspectorRunGroupCollapsed(state, runId) {
+  if (!runId) {
+    return state;
+  }
+  const current = new Set(state.collapsedInspectorRunIds || []);
+  if (current.has(runId)) {
+    current.delete(runId);
+  } else {
+    current.add(runId);
+  }
+  return {
+    ...state,
+    collapsedInspectorRunIds: [...current],
+  };
+}
+
+export function expandInspectorRunGroup(state, runId) {
+  if (!runId || !(state.collapsedInspectorRunIds || []).includes(runId)) {
+    return state;
+  }
+  return {
+    ...state,
+    collapsedInspectorRunIds: (state.collapsedInspectorRunIds || []).filter((item) => item !== runId),
+  };
+}
+
+export function summarizeDesktopText(value, maxChars = 120) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) {
+    return "none";
+  }
+  if (text.length <= maxChars) {
+    return text;
+  }
+  return `${text.slice(0, maxChars - 1)}...`;
+}
+
+export function summarizeRunGroup(group = {}) {
+  const messages = Array.isArray(group.messages) ? group.messages : [];
+  const userCount = messages.filter((item) => item.role === "user").length;
+  const assistantMessages = messages.filter((item) => item.role === "assistant");
+  const assistantCount = assistantMessages.length;
+  const toolMessages = messages.filter((item) => item.role === "tool");
+  const toolCount = toolMessages.length;
+  const errorCount = toolMessages.filter((item) =>
+    ["failed", "denied", "denied_by_user", "denied_by_profile", "timed_out", "cancelled"].includes(item.status),
+  ).length;
+  const activeCount = toolMessages.filter((item) =>
+    ["requested", "running", "waiting_approval", "approved_pending_run"].includes(item.status),
+  ).length;
+  const outcome =
+    errorCount > 0 ? "issues" : activeCount > 0 ? "active" : toolCount > 0 ? "complete" : "chat_only";
+  const assistant = [...messages]
+    .reverse()
+    .find((item) => item.role === "assistant" && item.text);
+  const tool = [...messages]
+    .reverse()
+    .find((item) => item.role === "tool");
+  const assistantCopyText = assistant?.text || "";
+  const toolCopyText = tool
+    ? tool.error || tool.text || (tool.output !== undefined ? JSON.stringify(tool.output, null, 2) : "")
+    : "";
+  return {
+    userCount,
+    assistantCount,
+    toolCount,
+    errorCount,
+    activeCount,
+    outcome,
+    assistant,
+    tool,
+    assistantPreviewText: assistant
+      ? `Assistant: ${summarizeDesktopText(assistant.text, 140)}`
+      : "Assistant: no final assistant turn yet",
+    toolPreviewText: tool
+      ? `Latest tool: ${tool.tool_name || "tool"} | ${tool.status || "unknown"} | ${summarizeDesktopText(tool.error || tool.text || toolCopyText, 120)}`
+      : toolCount > 0
+        ? "Latest tool: pending"
+        : "Latest tool: none",
+    assistantCopyText,
+    toolCopyText,
+  };
+}
+
+export function buildRunCopyArtifacts(group = {}) {
+  const summary = summarizeRunGroup(group);
+  return {
+    summary,
+    summaryText: [
+      `run ${group.run_id || "unknown"}`,
+      `outcome: ${summary.outcome}`,
+      `users: ${summary.userCount}`,
+      `assistants: ${summary.assistantCount}`,
+      `tools: ${summary.toolCount}`,
+      `issues: ${summary.errorCount}`,
+      summary.assistantPreviewText,
+      summary.toolPreviewText,
+    ].join("\n"),
+    assistantText: summary.assistantCopyText,
+    toolText: summary.toolCopyText,
+    jsonText: JSON.stringify(
+      {
+        run_id: group.run_id || null,
+        summary: {
+          userCount: summary.userCount,
+          assistantCount: summary.assistantCount,
+          toolCount: summary.toolCount,
+          errorCount: summary.errorCount,
+          activeCount: summary.activeCount,
+          outcome: summary.outcome,
+        },
+        messages: Array.isArray(group.messages) ? group.messages : [],
+      },
+      null,
+      2,
+    ),
+  };
+}
+
+export function findLatestToolActivityForRun(toolActivity = [], runId) {
+  if (!runId || !Array.isArray(toolActivity)) {
+    return null;
+  }
+  return toolActivity.find((item) => item?.run_id === runId) || null;
+}
+
+export function groupRunInspectorItems(items = []) {
+  const groups = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    if (item?.run_id) {
+      const existing = groups.find((group) => group.kind === "run" && group.run_id === item.run_id);
+      if (existing) {
+        existing.items.push(item);
+      } else {
+        groups.push({
+          kind: "run",
+          run_id: item.run_id,
+          items: [item],
+        });
+      }
+      continue;
+    }
+    groups.push({
+      kind: "standalone",
+      id: item?.approval_id || item?.request_id || item?.tool_call_id || `inspector-${groups.length}`,
+      items: [item],
+    });
+  }
+  return groups;
+}
+
+export function applyToolActivitySnapshot(state, snapshot = {}) {
+  const items = Array.isArray(snapshot?.items)
+    ? JSON.parse(JSON.stringify(snapshot.items))
+    : [];
+  return {
+    ...state,
+    toolActivity: items,
+    toolActivityStatus: snapshot?.status || (items.length > 0 ? state.toolActivityStatus : "No active tool run"),
+  };
+}
+
+export function applyToolActivityEvent(state, event = {}) {
+  const topic = event?.topic;
+  const payload = event?.payload || {};
+  if (!topic) {
+    return state;
+  }
+  if (topic === "conversation.run.started") {
+    return {
+      ...state,
+      toolActivity: [],
+      toolActivityStatus: "Conversation run started",
+    };
+  }
+  const current = Array.isArray(state.toolActivity) ? [...state.toolActivity] : [];
+  if (topic === "conversation.tool.requested") {
+    const toolCall = payload.tool_call || {};
+    return {
+      ...state,
+      toolActivity: [
+          {
+            run_id: payload.run_id || null,
+            conversation_id: payload.conversation_id || null,
+            tool_call_id: toolCall.id || null,
+            request_id: payload.request_id || null,
+            tool_name: toolCall.name || "unknown tool",
+          arguments: toolCall.arguments || {},
+          status: "requested",
+          output: null,
+          error: null,
+          approval_id: null,
+        },
+        ...current,
+      ].slice(0, 12),
+      toolActivityStatus: `Requested ${toolCall.name || "tool"}`,
+    };
+  }
+  if (topic === "tool.started") {
+    const next = current.map((item) =>
+      item.tool_call_id === payload.tool_call_id
+        ? {
+            ...item,
+            request_id: payload.request_id || item.request_id,
+            status: "running",
+          }
+        : item,
+    );
+    return {
+      ...state,
+      toolActivity: next,
+      toolActivityStatus: `Running ${payload.tool || "tool"}`,
+    };
+  }
+    if (topic === "approval.pending") {
+      const next = current.map((item) =>
+        item.request_id && item.request_id === payload.request_id
+          ? {
+            ...item,
+            approval_id: payload.approval_id || null,
+            status: "waiting_approval",
+            error: payload.reason || item.error,
+          }
+        : item,
+    );
+      return {
+        ...state,
+        toolActivity: next,
+        toolActivityStatus: `Approval requested for ${payload.tool_name || "tool"}`,
+      };
+    }
+    if (topic === "approval.responded") {
+      const next = current.map((item) =>
+        item.request_id && item.request_id === payload.request_id
+          ? {
+              ...item,
+              approval_id: payload.approval_id || item.approval_id,
+              status: payload.approved ? "approved_pending_run" : "denied_by_user",
+              error: payload.approved ? null : "Denied by user approval",
+            }
+          : item,
+      );
+      return {
+        ...state,
+        toolActivity: next,
+        toolActivityStatus: payload.approved
+          ? `Approved ${payload.tool_name || "tool"}`
+          : `Denied ${payload.tool_name || "tool"}`,
+      };
+    }
+    if (topic === "tool.finished") {
+      const next = current.map((item) =>
+        item.request_id === payload.request_id || item.tool_call_id === payload.tool_call_id
+          ? {
+              ...item,
+              request_id: payload.request_id || item.request_id,
+              status:
+                payload.status === "denied"
+                  ? classifyDeniedToolStatus(item, payload)
+                  : payload.status || item.status,
+              output: payload.output ?? item.output,
+              error: payload.error || item.error,
+            }
+          : item,
+      );
+    return {
+      ...state,
+      toolActivity: next,
+      toolActivityStatus: `${payload.tool_name || payload.tool || "Tool"} ${payload.status || "finished"}`,
+    };
+  }
+  if (topic === "conversation.tool.completed") {
+    const next = current.map((item) =>
+      item.tool_call_id === payload.tool_call_id
+        ? {
+            ...item,
+            status: payload.status || item.status,
+          }
+        : item,
+    );
+    return {
+      ...state,
+      toolActivity: next,
+      toolActivityStatus: `${payload.tool || "Tool"} ${payload.status || "completed"}`,
+    };
+  }
+  if (topic === "conversation.run.failed") {
+    return {
+      ...state,
+      toolActivityStatus: `Conversation run failed: ${payload.error || "unknown error"}`,
+    };
+  }
+  if (topic === "conversation.run.completed") {
+    return {
+      ...state,
+      toolActivityStatus:
+        current.length > 0 ? "Conversation run completed" : state.toolActivityStatus,
+    };
+  }
+  return state;
+}
+
+function classifyDeniedToolStatus(item, payload) {
+  const error = String(payload?.error || item?.error || "").toLowerCase();
+  if (item?.approval_id || error.includes("user denied")) {
+    return "denied_by_user";
+  }
+  return "denied_by_profile";
+}
+
 export function applyCoreEvent(state, event = {}) {
   const topic = event?.topic;
   const payload = event?.payload || {};
+  const withToolActivity = applyToolActivityEvent(state, event);
+
+  if (
+    topic === "tool.finished" &&
+    (payload.request_id || payload.tool_call_id || payload.run_id)
+  ) {
+    return appendToolResultMessage(withToolActivity, payload);
+  }
 
   if (topic === "desktop.state.changed" && payload.state) {
-    return applyDesktopSnapshot(state, payload.state);
+    return applyDesktopSnapshot(withToolActivity, payload.state);
   }
 
   if (topic === "conversation.delta" && typeof payload.text === "string") {
-    return appendAssistantDelta(state, payload.text);
+    return appendAssistantDelta(
+      withToolActivity,
+      payload.text,
+      payload.run_id || null,
+      payload.conversation_id || null,
+    );
   }
 
   if (topic === "conversation.run.completed") {
-    return finalizeAssistantMessage(state, payload.message?.content || "");
+    return finalizeAssistantMessage(
+      withToolActivity,
+      payload.message?.content || "",
+      payload,
+    );
   }
 
   if (topic === "conversation.run.failed" || topic === "conversation.run.cancelled") {
     return {
-      ...state,
+      ...withToolActivity,
       activeAssistantMessageId: null,
     };
   }
 
   if (topic === "approval.pending") {
-    return applyPendingApprovals(state, [...state.pendingApprovals, payload]);
+    return applyPendingApprovals(withToolActivity, [...state.pendingApprovals, payload]);
   }
 
   if (topic === "approval.responded" && payload.approval_id) {
-    return applyApprovalResponse(state, payload.approval_id);
+    return applyApprovalResponse(withToolActivity, payload.approval_id);
   }
 
-  return state;
+  if (topic === "permission.grant.updated") {
+    return applyAllowAllCmdGrant(withToolActivity, payload);
+  }
+
+  return withToolActivity;
 }
 
-function appendAssistantDelta(state, text) {
-  const messageId = state.activeAssistantMessageId || `assistant-live-${Date.now()}`;
+function appendAssistantDelta(state, text, runId = null, conversationId = null) {
+  const messageId = state.activeAssistantMessageId || `assistant-live-${runId || Date.now()}`;
   const existingIndex = state.messages.findIndex((message) => message.id === messageId);
 
   if (existingIndex >= 0) {
@@ -251,6 +714,8 @@ function appendAssistantDelta(state, text) {
         ? {
             ...message,
             text: `${message.text}${text}`,
+            run_id: runId || message.run_id || null,
+            conversation_id: conversationId || message.conversation_id || null,
           }
         : message,
     );
@@ -269,13 +734,18 @@ function appendAssistantDelta(state, text) {
         id: messageId,
         role: "assistant",
         text,
+        kind: "assistant_turn",
+        run_id: runId,
+        conversation_id: conversationId,
       },
     ],
     activeAssistantMessageId: messageId,
   };
 }
 
-function finalizeAssistantMessage(state, content) {
+function finalizeAssistantMessage(state, content, payload = {}) {
+  const runId = payload.run_id || payload.message?.metadata?.run_id || null;
+  const conversationId = payload.conversation_id || payload.message?.conversation_id || null;
   if (!state.activeAssistantMessageId) {
     if (!content) {
       return state;
@@ -284,6 +754,9 @@ function finalizeAssistantMessage(state, content) {
       id: `assistant-final-${Date.now()}`,
       role: "assistant",
       text: content,
+      kind: "assistant_turn",
+      run_id: runId,
+      conversation_id: conversationId,
     });
   }
 
@@ -292,6 +765,9 @@ function finalizeAssistantMessage(state, content) {
       ? {
           ...message,
           text: content || message.text,
+          kind: "assistant_turn",
+          run_id: runId || message.run_id || null,
+          conversation_id: conversationId || message.conversation_id || null,
         }
       : message,
   );
@@ -300,4 +776,52 @@ function finalizeAssistantMessage(state, content) {
     messages,
     activeAssistantMessageId: null,
   };
+}
+
+function appendToolResultMessage(state, payload = {}) {
+  const toolCallId = payload.tool_call_id || null;
+  const requestId = payload.request_id || null;
+  const messageId = `tool-result-${toolCallId || requestId || Date.now()}`;
+  const text = formatToolResultText(payload);
+  const existingIndex = state.messages.findIndex((message) => message.id === messageId);
+  const nextMessage = {
+    id: messageId,
+    role: "tool",
+    kind: "tool_result",
+    text,
+    run_id: payload.run_id || null,
+    conversation_id: payload.conversation_id || null,
+    request_id: requestId,
+    tool_call_id: toolCallId,
+    tool_name: payload.tool_name || payload.tool || "tool",
+    status: payload.status || "finished",
+    output: payload.output ?? null,
+    error: payload.error || null,
+  };
+  if (existingIndex >= 0) {
+    return {
+      ...state,
+      messages: state.messages.map((message) =>
+        message.id === messageId ? { ...message, ...nextMessage } : message,
+      ),
+    };
+  }
+  return appendMessage(state, nextMessage);
+}
+
+function formatToolResultText(payload = {}) {
+  if (payload.error) {
+    return payload.error;
+  }
+  if (payload.output == null) {
+    return `${payload.tool_name || payload.tool || "tool"} ${payload.status || "finished"}`;
+  }
+  if (typeof payload.output === "string") {
+    return payload.output;
+  }
+  try {
+    return JSON.stringify(payload.output, null, 2);
+  } catch {
+    return String(payload.output);
+  }
 }

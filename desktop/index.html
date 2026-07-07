@@ -3,238 +3,502 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Yue Desktop Preview</title>
+    <title>Yue Desktop</title>
     <link rel="stylesheet" href="/src/styles.css">
   </head>
-  <body>
-    <div class="desktop-shell">
-      <section class="avatar-card">
-        <button id="avatar-button" class="avatar-button" type="button" aria-label="Toggle Yue console">
-          <span class="avatar-ring"></span>
-          <span class="avatar-core">Yue</span>
-        </button>
-        <div class="avatar-meta">
-          <div class="avatar-title">Yue Desktop</div>
-          <div id="presence-line" class="avatar-line">idle / neutral</div>
-          <div id="window-line" class="avatar-line">anchor: bottom-right</div>
-          <div id="bridge-line" class="avatar-line">bridge: mock | core: idle</div>
-          <div id="provider-line" class="avatar-line">providers: unavailable</div>
-        </div>
-      </section>
-      <section id="console-panel" class="console-panel hidden">
-        <header class="console-header">
-          <div>
-            <div class="console-title">Integrated Console</div>
-            <div id="session-line" class="console-subtitle">session: disconnected</div>
-          </div>
-          <button id="close-console-button" class="ghost-button" type="button">Close</button>
-        </header>
-        <section class="provider-panel">
-          <div class="provider-panel-title">Provider status</div>
-          <div id="provider-status-list" class="provider-status-list"></div>
-        </section>
-        <section class="provider-panel">
-          <div class="provider-panel-title">Pending approvals</div>
-          <div id="approval-status-line" class="console-subtitle">No pending approvals</div>
-          <div id="approval-list" class="approval-list"></div>
-        </section>
-        <section class="settings-panel">
-          <div class="provider-panel-title">Routing and prompts</div>
-          <div id="settings-status-line" class="console-subtitle">Runtime only</div>
-          <form id="settings-form" class="settings-form">
-            <label class="settings-field">
-              <span>Default provider</span>
-              <input id="default-provider-input" class="message-input" name="default_provider" list="provider-options">
-            </label>
-            <div class="settings-grid">
-              <label class="settings-field">
-                <span>Chat provider</span>
-                <input id="chat-provider-input" class="message-input" list="provider-options">
-              </label>
-              <label class="settings-field">
-                <span>Chat profile</span>
-                <input id="chat-profile-input" class="message-input">
-              </label>
-              <label class="settings-field">
-                <span>Coding provider</span>
-                <input id="coding-provider-input" class="message-input" list="provider-options">
-              </label>
-              <label class="settings-field">
-                <span>Coding profile</span>
-                <input id="coding-profile-input" class="message-input">
-              </label>
-            </div>
-            <div class="settings-grid">
-              <label class="settings-field">
-                <span>Default personality</span>
-                <textarea id="default-personality-input" class="settings-textarea"></textarea>
-              </label>
-              <label class="settings-field">
-                <span>Default system</span>
-                <textarea id="default-system-input" class="settings-textarea"></textarea>
-              </label>
-              <label class="settings-field">
-                <span>Coding personality</span>
-                <textarea id="coding-personality-input" class="settings-textarea"></textarea>
-              </label>
-              <label class="settings-field">
-                <span>Coding system</span>
-                <textarea id="coding-system-input" class="settings-textarea"></textarea>
-              </label>
-              <label class="settings-field">
-                <span>Coding tool instruction</span>
-                <textarea id="coding-tool-input" class="settings-textarea"></textarea>
-              </label>
-              <label class="settings-field">
-                <span>Coding response instruction</span>
-                <textarea id="coding-response-input" class="settings-textarea"></textarea>
-              </label>
-            </div>
-            <div class="settings-actions">
-              <button id="settings-apply-button" class="send-button" type="submit">Apply runtime settings</button>
-              <button id="settings-save-button" class="ghost-button" type="button">Save to config</button>
-            </div>
-          </form>
-          <datalist id="provider-options"></datalist>
-        </section>
-        <section class="settings-panel">
-          <div class="provider-panel-title">OpenAI-compatible provider config</div>
-          <div id="provider-config-status-line" class="console-subtitle">Provider config runtime only</div>
-          <form id="provider-config-form" class="settings-form">
-            <label class="settings-field">
-              <span>Provider</span>
-              <select id="provider-config-select" class="message-input"></select>
-            </label>
-            <div class="settings-field">
-              <span>Quick presets</span>
-              <div class="preset-list">
-                <button class="ghost-button preset-button" type="button" data-provider-preset="openai">OpenAI</button>
-                <button class="ghost-button preset-button" type="button" data-provider-preset="google">Google AI</button>
-                <button class="ghost-button preset-button" type="button" data-provider-preset="openrouter">OpenRouter</button>
-                <button class="ghost-button preset-button" type="button" data-provider-preset="ollama">Ollama</button>
-                <button class="ghost-button preset-button" type="button" data-provider-preset="lmstudio">LM Studio</button>
-                <button class="ghost-button preset-button" type="button" data-provider-preset="custom">Custom</button>
-              </div>
-            </div>
-            <div class="settings-grid">
-              <label class="settings-field">
-                <span>Backend</span>
-                <input id="provider-backend-input" class="message-input">
-              </label>
-              <label class="settings-field">
-                <span>Base URL</span>
-                <input id="provider-base-url-input" class="message-input">
-              </label>
-              <label class="settings-field">
-                <span>Model</span>
-                <input id="provider-model-input" class="message-input">
-              </label>
-              <label class="settings-field">
-                <span>API key env</span>
-                <input id="provider-api-key-env-input" class="message-input">
-              </label>
-              <label class="settings-field">
-                <span>Timeout seconds</span>
-                <input id="provider-timeout-input" class="message-input" type="number" step="0.1">
-              </label>
-              <label class="settings-field">
-                <span>Health timeout</span>
-                <input id="provider-health-timeout-input" class="message-input" type="number" step="0.1">
-              </label>
-              <label class="settings-field">
-                <span>Temperature</span>
-                <input id="provider-temperature-input" class="message-input" type="number" step="0.1">
-              </label>
-              <label class="settings-field">
-                <span>Max tokens</span>
-                <input id="provider-max-tokens-input" class="message-input" type="number" step="1">
-              </label>
-            </div>
-            <div class="settings-field">
-              <span>Custom headers</span>
-              <div id="provider-headers-list" class="headers-list"></div>
-              <button id="provider-header-add-button" class="ghost-button inline-button" type="button">Add header</button>
-            </div>
-            <div class="settings-actions">
-              <button class="send-button" type="submit">Apply provider config</button>
-              <button id="provider-config-save-button" class="ghost-button" type="button">Save provider config</button>
-              <button id="provider-config-add-button" class="ghost-button" type="button">Add provider</button>
-              <button id="provider-config-remove-button" class="ghost-button" type="button">Remove provider</button>
-            </div>
-          </form>
-        </section>
-        <section class="settings-panel">
-          <div class="provider-panel-title">Anthropic provider config</div>
-          <div id="anthropic-config-status-line" class="console-subtitle">Anthropic config runtime only</div>
-          <form id="anthropic-config-form" class="settings-form">
-            <label class="settings-field">
-              <span>Provider</span>
-              <select id="anthropic-config-select" class="message-input"></select>
-            </label>
-            <div class="settings-field">
-              <span>Quick presets</span>
-              <div class="preset-list">
-                <button class="ghost-button preset-button" type="button" data-anthropic-preset="claude">Claude API</button>
-              </div>
-            </div>
-            <div class="settings-grid">
-              <label class="settings-field">
-                <span>Backend</span>
-                <input id="anthropic-backend-input" class="message-input">
-              </label>
-              <label class="settings-field">
-                <span>Base URL</span>
-                <input id="anthropic-base-url-input" class="message-input">
-              </label>
-              <label class="settings-field">
-                <span>Model</span>
-                <input id="anthropic-model-input" class="message-input">
-              </label>
-              <label class="settings-field">
-                <span>API key env</span>
-                <input id="anthropic-api-key-env-input" class="message-input">
-              </label>
-              <label class="settings-field">
-                <span>Anthropic version</span>
-                <input id="anthropic-version-input" class="message-input">
-              </label>
-              <label class="settings-field">
-                <span>Timeout seconds</span>
-                <input id="anthropic-timeout-input" class="message-input" type="number" step="0.1">
-              </label>
-              <label class="settings-field">
-                <span>Health timeout</span>
-                <input id="anthropic-health-timeout-input" class="message-input" type="number" step="0.1">
-              </label>
-              <label class="settings-field">
-                <span>Temperature</span>
-                <input id="anthropic-temperature-input" class="message-input" type="number" step="0.1">
-              </label>
-              <label class="settings-field">
-                <span>Max tokens</span>
-                <input id="anthropic-max-tokens-input" class="message-input" type="number" step="1">
-              </label>
-            </div>
-            <div class="settings-field">
-              <span>Custom headers</span>
-              <div id="anthropic-headers-list" class="headers-list"></div>
-              <button id="anthropic-header-add-button" class="ghost-button inline-button" type="button">Add header</button>
-            </div>
-            <div class="settings-actions">
-              <button class="send-button" type="submit">Apply Anthropic config</button>
-              <button id="anthropic-config-save-button" class="ghost-button" type="button">Save Anthropic config</button>
-              <button id="anthropic-config-add-button" class="ghost-button" type="button">Add provider</button>
-              <button id="anthropic-config-remove-button" class="ghost-button" type="button">Remove provider</button>
-            </div>
-          </form>
-        </section>
-        <div id="message-log" class="message-log"></div>
-        <form id="message-form" class="message-form">
-          <input id="message-input" class="message-input" name="message" autocomplete="off" placeholder="Send a local message">
-          <button class="send-button" type="submit">Send</button>
-        </form>
-      </section>
+  <body class="app-body">
+    <div class="ambient-layer" aria-hidden="true">
+      <div class="ambient-plate ambient-plate-a"></div>
+      <div class="ambient-plate ambient-plate-b"></div>
+      <div class="ambient-lines"></div>
+      <div class="ambient-noise"></div>
     </div>
+
+    <div class="app-shell">
+      <header class="masthead">
+        <section class="masthead-copy">
+          <div class="masthead-kicker">Yue Desktop</div>
+          <h1 class="masthead-title">A local agent control room that feels built, not skinned.</h1>
+          <p class="masthead-subtitle">
+            Route models, inspect runs, resolve approvals, and read backend state from one authored workspace.
+          </p>
+          <div class="masthead-actions">
+            <button id="avatar-button" class="send-button masthead-button" type="button">Enter workspace</button>
+            <div id="overview-runtime-summary" class="masthead-status">Bridge idle</div>
+          </div>
+        </section>
+
+        <section class="masthead-aside">
+          <article class="status-shard status-shard-wide">
+            <div class="shard-label">Session</div>
+            <div id="overview-session-kicker" class="shard-value">Disconnected</div>
+            <div id="presence-line" class="shard-note">idle / neutral</div>
+          </article>
+          <article class="status-shard">
+            <div class="shard-label">Bridge</div>
+            <div id="bridge-line" class="shard-value shard-value-compact">bridge: mock | core: idle</div>
+          </article>
+          <article class="status-shard status-shard-pair">
+            <div>
+              <div class="shard-label">Pending</div>
+              <div id="overview-bridge-pending" class="shard-number">0</div>
+            </div>
+            <div>
+              <div class="shard-label">Queue</div>
+              <div id="overview-bridge-events" class="shard-number">0</div>
+            </div>
+          </article>
+          <article class="status-shard">
+            <div class="shard-label">Providers</div>
+            <div id="provider-line" class="shard-value">providers: unavailable</div>
+            <div id="overview-provider-summary" class="shard-note">No provider health loaded yet.</div>
+          </article>
+          <article class="status-shard">
+            <div class="shard-label">Activity</div>
+            <div id="overview-activity-summary" class="shard-value">No active tool run</div>
+            <div class="shard-inline">
+              <span>Messages <strong id="overview-message-count">0</strong></span>
+              <span>Approvals <strong id="overview-approval-count">0</strong></span>
+            </div>
+          </article>
+        </section>
+      </header>
+
+      <div class="operations-shell">
+        <aside class="system-rail">
+          <section class="rail-monolith">
+            <div class="monolith-mark">
+              <span class="mark-frame"></span>
+              <span class="mark-core">Yue</span>
+            </div>
+            <div class="monolith-copy">
+              <div class="rail-label">YueAI</div>
+              <div id="window-line" class="rail-text">anchor: bottom-right</div>
+              <div id="session-line" class="rail-text">session: disconnected</div>
+            </div>
+          </section>
+        </aside>
+
+        <main id="console-panel" class="console-panel hidden">
+          <header class="console-topbar">
+            <div class="console-topbar-copy">
+              <div class="console-title">Workspace console</div>
+              <div class="console-subtitle">Conversation flow, approvals, workspace reads, and provider routing.</div>
+            </div>
+            <div class="console-topbar-actions">
+              <button id="ops-drawer-button" class="ghost-button" type="button">Ops</button>
+              <button id="config-drawer-button" class="ghost-button" type="button">Config</button>
+              <button id="close-console-button" class="ghost-button" type="button">Collapse</button>
+            </div>
+          </header>
+
+          <div id="console-drawer-backdrop" class="console-drawer-backdrop" hidden></div>
+
+          <section class="signal-strip">
+            <article class="signal-cell">
+              <div class="signal-label">Bridge note</div>
+              <div id="overview-band-bridge-note" class="signal-value">Mock preview transport active.</div>
+            </article>
+            <article class="signal-cell">
+              <div class="signal-label">Shell grant</div>
+              <div id="allow-all-cmd-status-line" class="signal-value">Session shell grant disabled</div>
+            </article>
+            <article class="signal-cell">
+              <div class="signal-label">Inspector</div>
+              <div id="run-inspector-status-line" class="signal-value">No active tool run</div>
+            </article>
+            <article class="signal-cell">
+              <div class="signal-label">Parallel inspect</div>
+              <div id="parallel-inspect-status-line" class="signal-value">Parallel inspect idle</div>
+            </article>
+          </section>
+
+          <section id="main-stage" class="main-stage">
+            <section class="log-stage">
+              <div class="section-head">
+                <div class="section-label">Conversation trace</div>
+                <div class="section-copy">Grouped runs, assistant output, and tool results rendered as a continuous execution log.</div>
+              </div>
+              <div id="message-log" class="message-log"></div>
+              <form id="message-form" class="message-form">
+                <label class="sr-only" for="message-input">Message</label>
+                <input id="message-input" class="message-input" name="message" autocomplete="off" placeholder="Send a local message">
+                <button class="send-button" type="submit">Send</button>
+              </form>
+            </section>
+
+            <aside id="ops-drawer" class="control-stack utility-drawer">
+              <section class="control-block">
+                <div class="section-head drawer-head">
+                  <div>
+                    <div class="section-label">Run inspector</div>
+                    <div class="section-copy">Pending approvals, tool activity, and direct jumps into the log.</div>
+                  </div>
+                  <button class="ghost-button drawer-close-button" type="button" data-close-drawer="ops">Close</button>
+                </div>
+                <div id="run-inspector-list" class="tool-activity-list"></div>
+              </section>
+
+              <section class="control-block">
+                <div class="section-head">
+                  <div class="section-label">Agent tool controls</div>
+                  <div class="section-copy">Session grants and batched file inspection.</div>
+                </div>
+                <label class="toggle-row">
+                  <input id="allow-all-cmd-toggle" type="checkbox">
+                  <span>Allow all shell commands for this session</span>
+                </label>
+                <div class="console-note">
+                  Session grant only affects model shell tools in this session. It does not bypass the `observe` profile boundary.
+                </div>
+                <form id="parallel-inspect-form" class="settings-form compact-form">
+                  <label class="settings-field">
+                    <span>Workspace paths, one per line</span>
+                    <textarea id="parallel-inspect-paths-input" class="settings-textarea" placeholder="PROJECT_HANDOFF.md&#10;docs/notes/agent_start_here.md"></textarea>
+                  </label>
+                  <div class="settings-grid">
+                    <label class="settings-field">
+                      <span>Start line</span>
+                      <input id="parallel-inspect-start-line-input" class="message-input" type="number" min="1" step="1">
+                    </label>
+                    <label class="settings-field">
+                      <span>End line</span>
+                      <input id="parallel-inspect-end-line-input" class="message-input" type="number" min="1" step="1">
+                    </label>
+                  </div>
+                  <div class="settings-actions">
+                    <button class="send-button" type="submit">Run inspect</button>
+                  </div>
+                </form>
+                <div id="parallel-inspect-results" class="parallel-inspect-results"></div>
+              </section>
+
+              <section class="control-block">
+                <div class="section-head">
+                  <div class="section-label">Provider health</div>
+                  <div class="section-copy">Live backend availability for the active routing surface.</div>
+                </div>
+                <div id="provider-status-list" class="provider-status-list"></div>
+              </section>
+
+              <section class="control-block">
+                <div class="section-head">
+                  <div class="section-label">Tool contract</div>
+                  <div id="tool-catalog-status-line" class="section-copy">Tool catalog unavailable</div>
+                </div>
+                <div id="tool-catalog-list" class="tool-catalog-list"></div>
+              </section>
+            </aside>
+          </section>
+
+          <section id="config-drawer" class="provider-orchestrator utility-drawer">
+            <div class="section-head drawer-head">
+              <div>
+                <div class="section-label">Active provider</div>
+                <div class="section-copy">Pick one runtime model. The backend will route chat and coding through the same active provider.</div>
+              </div>
+              <button class="ghost-button drawer-close-button" type="button" data-close-drawer="config">Close</button>
+            </div>
+            <div class="provider-orchestrator-shell">
+              <div class="provider-orchestrator-topline">
+                <div id="active-provider-status-line" class="console-subtitle">Active provider runtime only</div>
+                <div id="active-provider-runtime-line" class="console-note">Single-provider mode keeps one model active at a time.</div>
+              </div>
+              <form id="active-provider-form" class="settings-form">
+                <div class="settings-grid provider-unified-grid">
+                  <label class="settings-field">
+                    <span>Provider type</span>
+                    <select id="active-provider-kind-select" class="message-input"></select>
+                  </label>
+                  <label class="settings-field">
+                    <span>Provider name</span>
+                    <input id="active-provider-name-input" class="message-input" placeholder="ollama.chat">
+                  </label>
+                  <label class="settings-field">
+                    <span>API key env</span>
+                    <input id="active-provider-api-key-env-input" class="message-input" placeholder="OPENAI_API_KEY">
+                  </label>
+                  <div id="active-provider-model-shell" class="settings-field settings-field-wide">
+                    <span>Model catalog</span>
+                    <div class="model-picker-row">
+                      <select id="active-provider-model-input" class="message-input"></select>
+                      <button id="active-provider-model-refresh-button" class="ghost-button" type="button">Refresh models</button>
+                    </div>
+                    <div id="active-provider-model-hint" class="console-note">Load models from the selected provider.</div>
+                  </div>
+                </div>
+
+                <div id="active-provider-local-fields" class="settings-grid provider-unified-grid">
+                  <label class="settings-field">
+                    <span>Host / IP</span>
+                    <input id="active-provider-host-input" class="message-input" placeholder="127.0.0.1">
+                  </label>
+                  <label class="settings-field">
+                    <span>Port</span>
+                    <input id="active-provider-port-input" class="message-input" type="number" min="1" step="1" placeholder="8080">
+                  </label>
+                  <label class="settings-field settings-field-wide">
+                    <span>Base URL</span>
+                    <input id="active-provider-base-url-input" class="message-input" placeholder="http://127.0.0.1:8080">
+                  </label>
+                </div>
+
+                <div id="active-provider-anthropic-fields" class="settings-grid provider-unified-grid">
+                  <label class="settings-field">
+                    <span>Anthropic version</span>
+                    <input id="active-provider-anthropic-version-input" class="message-input" placeholder="2023-06-01">
+                  </label>
+                </div>
+
+                <div class="settings-grid provider-unified-grid">
+                  <label class="settings-field">
+                    <span>Timeout seconds</span>
+                    <input id="active-provider-timeout-input" class="message-input" type="number" min="1" step="0.1">
+                  </label>
+                  <label class="settings-field">
+                    <span>Health timeout</span>
+                    <input id="active-provider-health-timeout-input" class="message-input" type="number" min="1" step="0.1">
+                  </label>
+                  <label class="settings-field">
+                    <span>Temperature</span>
+                    <input id="active-provider-temperature-input" class="message-input" type="number" min="0" step="0.1">
+                  </label>
+                  <label class="settings-field">
+                    <span>Max tokens</span>
+                    <input id="active-provider-max-tokens-input" class="message-input" type="number" min="1" step="1">
+                  </label>
+                </div>
+
+                <div class="settings-actions">
+                  <button class="send-button" type="submit">Apply active provider</button>
+                  <button id="active-provider-save-button" class="ghost-button" type="button">Save active provider</button>
+                </div>
+              </form>
+            </div>
+          </section>
+
+          <section class="config-switcher legacy-config-shell">
+            <div class="section-head">
+              <div class="section-label">Provider setup</div>
+              <div class="section-copy">Choose the configuration surface you want to edit instead of showing every provider family at once.</div>
+            </div>
+            <label class="settings-field config-switcher-field">
+              <span>Configuration view</span>
+              <select id="config-scope-select" class="message-input">
+                <option value="routing">Routing and prompts</option>
+                <option value="openai">OpenAI-compatible providers</option>
+                <option value="anthropic">Anthropic providers</option>
+              </select>
+            </label>
+          </section>
+
+          <section class="config-stage legacy-config-shell">
+            <section id="routing-config-block" class="config-block config-block-large">
+              <div class="section-head">
+                <div class="section-label">Routing and prompts</div>
+                <div class="section-copy">Provider mapping, profile routing, and prompt instruction layers.</div>
+              </div>
+              <div id="settings-status-line" class="console-subtitle">Runtime only</div>
+              <form id="settings-form" class="settings-form">
+                <label class="settings-field">
+                  <span>Default provider</span>
+                  <input id="default-provider-input" class="message-input" name="default_provider" list="provider-options">
+                </label>
+                <div class="settings-grid">
+                  <label class="settings-field">
+                    <span>Chat provider</span>
+                    <input id="chat-provider-input" class="message-input" list="provider-options">
+                  </label>
+                  <label class="settings-field">
+                    <span>Chat profile</span>
+                    <input id="chat-profile-input" class="message-input">
+                  </label>
+                  <label class="settings-field">
+                    <span>Coding provider</span>
+                    <input id="coding-provider-input" class="message-input" list="provider-options">
+                  </label>
+                  <label class="settings-field">
+                    <span>Coding profile</span>
+                    <input id="coding-profile-input" class="message-input">
+                  </label>
+                </div>
+                <div class="settings-grid settings-grid-textareas">
+                  <label class="settings-field">
+                    <span>Default personality</span>
+                    <textarea id="default-personality-input" class="settings-textarea"></textarea>
+                  </label>
+                  <label class="settings-field">
+                    <span>Default system</span>
+                    <textarea id="default-system-input" class="settings-textarea"></textarea>
+                  </label>
+                  <label class="settings-field">
+                    <span>Coding personality</span>
+                    <textarea id="coding-personality-input" class="settings-textarea"></textarea>
+                  </label>
+                  <label class="settings-field">
+                    <span>Coding system</span>
+                    <textarea id="coding-system-input" class="settings-textarea"></textarea>
+                  </label>
+                  <label class="settings-field">
+                    <span>Coding tool instruction</span>
+                    <textarea id="coding-tool-input" class="settings-textarea"></textarea>
+                  </label>
+                  <label class="settings-field">
+                    <span>Coding response instruction</span>
+                    <textarea id="coding-response-input" class="settings-textarea"></textarea>
+                  </label>
+                </div>
+                <div class="settings-actions">
+                  <button id="settings-apply-button" class="send-button" type="submit">Apply runtime settings</button>
+                  <button id="settings-save-button" class="ghost-button" type="button">Save to config</button>
+                </div>
+              </form>
+              <datalist id="provider-options"></datalist>
+            </section>
+
+            <section id="openai-config-block" class="config-block">
+              <div class="section-head">
+                <div class="section-label">OpenAI-compatible providers</div>
+                <div class="section-copy">Presets, transport settings, and custom headers.</div>
+              </div>
+              <div id="provider-config-status-line" class="console-subtitle">Provider config runtime only</div>
+              <form id="provider-config-form" class="settings-form">
+                <label class="settings-field">
+                  <span>Provider</span>
+                  <select id="provider-config-select" class="message-input"></select>
+                </label>
+                <div class="settings-field">
+                  <span>Quick presets</span>
+                  <div class="preset-list">
+                    <button class="ghost-button preset-button" type="button" data-provider-preset="openai">OpenAI</button>
+                    <button class="ghost-button preset-button" type="button" data-provider-preset="google">Google AI</button>
+                    <button class="ghost-button preset-button" type="button" data-provider-preset="openrouter">OpenRouter</button>
+                    <button class="ghost-button preset-button" type="button" data-provider-preset="ollama">Ollama</button>
+                    <button class="ghost-button preset-button" type="button" data-provider-preset="lmstudio">LM Studio</button>
+                    <button class="ghost-button preset-button" type="button" data-provider-preset="custom">Custom</button>
+                  </div>
+                </div>
+                <div class="settings-grid">
+                  <label class="settings-field">
+                    <span>Backend</span>
+                    <input id="provider-backend-input" class="message-input">
+                  </label>
+                  <label class="settings-field">
+                    <span>Base URL</span>
+                    <input id="provider-base-url-input" class="message-input">
+                  </label>
+                  <label class="settings-field">
+                    <span>Model</span>
+                    <input id="provider-model-input" class="message-input">
+                  </label>
+                  <label class="settings-field">
+                    <span>API key env</span>
+                    <input id="provider-api-key-env-input" class="message-input">
+                  </label>
+                  <label class="settings-field">
+                    <span>Timeout seconds</span>
+                    <input id="provider-timeout-input" class="message-input" type="number" step="0.1">
+                  </label>
+                  <label class="settings-field">
+                    <span>Health timeout</span>
+                    <input id="provider-health-timeout-input" class="message-input" type="number" step="0.1">
+                  </label>
+                  <label class="settings-field">
+                    <span>Temperature</span>
+                    <input id="provider-temperature-input" class="message-input" type="number" step="0.1">
+                  </label>
+                  <label class="settings-field">
+                    <span>Max tokens</span>
+                    <input id="provider-max-tokens-input" class="message-input" type="number" step="1">
+                  </label>
+                </div>
+                <label class="settings-field">
+                  <span>Custom headers</span>
+                  <div id="provider-headers-list" class="headers-list"></div>
+                  <button id="provider-header-add-button" class="ghost-button inline-button" type="button">Add header</button>
+                </label>
+                <div class="settings-actions">
+                  <button class="send-button" type="submit">Apply provider config</button>
+                  <button id="provider-config-save-button" class="ghost-button" type="button">Save provider config</button>
+                  <button id="provider-config-add-button" class="ghost-button" type="button">Add provider</button>
+                  <button id="provider-config-remove-button" class="ghost-button" type="button">Remove provider</button>
+                </div>
+              </form>
+            </section>
+
+            <section id="anthropic-config-block" class="config-block">
+              <div class="section-head">
+                <div class="section-label">Anthropic providers</div>
+                <div class="section-copy">Versioned Anthropic routing and header control.</div>
+              </div>
+              <div id="anthropic-config-status-line" class="console-subtitle">Anthropic config runtime only</div>
+              <form id="anthropic-config-form" class="settings-form">
+                <label class="settings-field">
+                  <span>Provider</span>
+                  <select id="anthropic-config-select" class="message-input"></select>
+                </label>
+                <div class="settings-field">
+                  <span>Quick presets</span>
+                  <div class="preset-list">
+                    <button class="ghost-button preset-button" type="button" data-anthropic-preset="claude">Claude API</button>
+                  </div>
+                </div>
+                <div class="settings-grid">
+                  <label class="settings-field">
+                    <span>Backend</span>
+                    <input id="anthropic-backend-input" class="message-input">
+                  </label>
+                  <label class="settings-field">
+                    <span>Base URL</span>
+                    <input id="anthropic-base-url-input" class="message-input">
+                  </label>
+                  <label class="settings-field">
+                    <span>Model</span>
+                    <input id="anthropic-model-input" class="message-input">
+                  </label>
+                  <label class="settings-field">
+                    <span>API key env</span>
+                    <input id="anthropic-api-key-env-input" class="message-input">
+                  </label>
+                  <label class="settings-field">
+                    <span>Anthropic version</span>
+                    <input id="anthropic-version-input" class="message-input">
+                  </label>
+                  <label class="settings-field">
+                    <span>Timeout seconds</span>
+                    <input id="anthropic-timeout-input" class="message-input" type="number" step="0.1">
+                  </label>
+                  <label class="settings-field">
+                    <span>Health timeout</span>
+                    <input id="anthropic-health-timeout-input" class="message-input" type="number" step="0.1">
+                  </label>
+                  <label class="settings-field">
+                    <span>Temperature</span>
+                    <input id="anthropic-temperature-input" class="message-input" type="number" step="0.1">
+                  </label>
+                  <label class="settings-field">
+                    <span>Max tokens</span>
+                    <input id="anthropic-max-tokens-input" class="message-input" type="number" step="1">
+                  </label>
+                </div>
+                <label class="settings-field">
+                  <span>Custom headers</span>
+                  <div id="anthropic-headers-list" class="headers-list"></div>
+                  <button id="anthropic-header-add-button" class="ghost-button inline-button" type="button">Add header</button>
+                </label>
+                <div class="settings-actions">
+                  <button class="send-button" type="submit">Apply Anthropic config</button>
+                  <button id="anthropic-config-save-button" class="ghost-button" type="button">Save Anthropic config</button>
+                  <button id="anthropic-config-add-button" class="ghost-button" type="button">Add provider</button>
+                  <button id="anthropic-config-remove-button" class="ghost-button" type="button">Remove provider</button>
+                </div>
+              </form>
+            </section>
+          </section>
+        </main>
+      </div>
+    </div>
+
     <script src="/src/runtime.js"></script>
   </body>
-  </html>
+</html>

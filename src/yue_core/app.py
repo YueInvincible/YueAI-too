@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import copy
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping
+from urllib.parse import urlsplit
 
 from .audit import AuditLog
 from .builtin_tools import (
     ApprovalRequestTool,
+    AskUserApprovalTool,
     EchoTool,
     FileDeleteTool,
     FileEditTool,
@@ -40,25 +43,152 @@ from .conversation import (
     InMemoryConversationStore,
     SQLiteConversationStore,
 )
-from .contracts import CoreEvent, ToolRequest, ToolResult
+from .contracts import CoreEvent, Tool, ToolContext, ToolRequest, ToolResult, ToolSpec
 from .desktop import DesktopSessionManager
 from .events import EventBus
 from .fake_provider import EchoModelProvider
 from .permissions import ApprovalProvider, PermissionEngine
+from .permissions import PermissionGrantStore
 from .plugins import PluginManager
 from .providers import ModelProviderRegistry
 from .services import ServiceRegistry
 from .shell_sessions import ShellSessionManager
 from .tools import ToolExecutor, ToolRegistry
 from .version import VERSION
-from .openai_compat import coerce_provider_configs, normalize_provider_config
+from .openai_compat import (
+    OpenAICompatibleProvider,
+    coerce_provider_configs,
+    default_base_url as default_openai_base_url,
+    normalize_provider_config,
+)
 from .anthropic import (
+    AnthropicMessagesProvider,
     coerce_provider_configs as coerce_anthropic_provider_configs,
+    default_base_url as default_anthropic_base_url,
     normalize_provider_config as normalize_anthropic_provider_config,
 )
 from .approval_bridge import BridgeApprovalProvider
+from .tool_activity import ToolActivityStore
 
 LOGGER = logging.getLogger(__name__)
+
+CODING_AGENT_TOOL_ALIASES: dict[str, str] = {
+    "workspace.list": "workspace_list",
+    "workspace.read": "workspace_read",
+    "workspace.search": "workspace_search",
+    "workspace.grep": "workspace_grep",
+    "workspace.write": "workspace_write",
+    "workspace.edit": "workspace_edit",
+    "workspace.ops": "workspace_ops",
+    "shell.run": "shell_run",
+    "shell.session": "shell_session",
+    "git.status": "git_status",
+    "git.diff": "git_diff",
+    "todo.update": "todo_update",
+}
+
+ACTIVE_PROVIDER_OPTIONS: tuple[dict[str, Any], ...] = (
+    {
+        "kind": "llama.cpp",
+        "label": "Local llama.cpp",
+        "family": "local",
+        "plugin_id": "llama.cpp",
+        "default_provider_name": "localhost.chat",
+        "default_host": "127.0.0.1",
+        "default_port": 8080,
+        "default_api_key_env": "",
+    },
+    {
+        "kind": "ollama",
+        "label": "Ollama",
+        "family": "local",
+        "plugin_id": "openai.compat",
+        "default_provider_name": "ollama.chat",
+        "default_host": "127.0.0.1",
+        "default_port": 11434,
+        "default_api_key_env": "",
+    },
+    {
+        "kind": "lmstudio",
+        "label": "LM Studio",
+        "family": "local",
+        "plugin_id": "openai.compat",
+        "default_provider_name": "lmstudio.chat",
+        "default_host": "127.0.0.1",
+        "default_port": 1234,
+        "default_api_key_env": "",
+    },
+    {
+        "kind": "custom",
+        "label": "Custom OpenAI-compatible",
+        "family": "local",
+        "plugin_id": "openai.compat",
+        "default_provider_name": "custom.chat",
+        "default_host": "127.0.0.1",
+        "default_port": 8080,
+        "default_api_key_env": "",
+    },
+    {
+        "kind": "openai",
+        "label": "OpenAI",
+        "family": "cloud",
+        "plugin_id": "openai.compat",
+        "default_provider_name": "openai.chat",
+        "default_host": "",
+        "default_port": 443,
+        "default_api_key_env": "OPENAI_API_KEY",
+    },
+    {
+        "kind": "google",
+        "label": "Google AI",
+        "family": "cloud",
+        "plugin_id": "openai.compat",
+        "default_provider_name": "google.chat",
+        "default_host": "",
+        "default_port": 443,
+        "default_api_key_env": "GEMINI_API_KEY",
+    },
+    {
+        "kind": "openrouter",
+        "label": "OpenRouter",
+        "family": "cloud",
+        "plugin_id": "openai.compat",
+        "default_provider_name": "openrouter.chat",
+        "default_host": "",
+        "default_port": 443,
+        "default_api_key_env": "OPENROUTER_API_KEY",
+    },
+    {
+        "kind": "anthropic",
+        "label": "Anthropic",
+        "family": "cloud",
+        "plugin_id": "anthropic.messages",
+        "default_provider_name": "anthropic.chat",
+        "default_host": "",
+        "default_port": 443,
+        "default_api_key_env": "ANTHROPIC_API_KEY",
+    },
+)
+
+ACTIVE_PROVIDER_BY_KIND = {
+    str(item["kind"]): item for item in ACTIVE_PROVIDER_OPTIONS
+}
+
+
+class ToolAlias:
+    def __init__(self, target: Tool, alias_name: str) -> None:
+        self._target = target
+        self.spec = replace(
+            target.spec,
+            name=alias_name,
+            metadata={
+                **dict(target.spec.metadata),
+                "alias_of": target.spec.name,
+            },
+        )
+
+    async def invoke(self, arguments: Mapping[str, Any], context: ToolContext) -> Any:
+        return await self._target.invoke(arguments, context)
 
 
 class YueCore:
@@ -77,6 +207,8 @@ class YueCore:
         self.workspace_root = Path.cwd().resolve()
         self.todo_state: dict[str, list[dict[str, Any]]] = {}
         self.shell_sessions = ShellSessionManager()
+        self.permission_grants = PermissionGrantStore()
+        self.tool_activity = ToolActivityStore()
         self.approvals = (
             approval_provider
             if approval_provider is not None
@@ -88,7 +220,10 @@ class YueCore:
         self.services.register("core.workspace_root", self.workspace_root, owner="core")
         self.services.register("core.todo_state", self.todo_state, owner="core")
         self.services.register("core.shell_sessions", self.shell_sessions, owner="core")
+        self.services.register("core.permission_grants", self.permission_grants, owner="core")
+        self.services.register("core.tool_activity", self.tool_activity, owner="core")
         self.services.register("core.approvals", self.approvals, owner="core")
+        self._event_unsubscribes = self._subscribe_tool_activity()
         self.desktop = DesktopSessionManager(
             self.events.publish,
             hotkey=settings.desktop.hotkey,
@@ -101,6 +236,7 @@ class YueCore:
             settings.permissions.profile,
             approval_provider=self.approvals,
             interactive_approval=settings.permissions.interactive_approval,
+            grant_store=self.permission_grants,
         )
         self.services.register("core.permissions", self.permissions, owner="core")
         self.executor = ToolExecutor(
@@ -170,6 +306,13 @@ class YueCore:
     def from_path(cls, path: Path | None = None) -> "YueCore":
         return cls(load_settings(path))
 
+    def _subscribe_tool_activity(self) -> list[Any]:
+        return [
+            self.events.subscribe("conversation.*", self.tool_activity.record),
+            self.events.subscribe("approval.*", self.tool_activity.record),
+            self.events.subscribe("tool.*", self.tool_activity.record),
+        ]
+
     def conversation_settings_snapshot(self) -> dict[str, Any]:
         return {
             "default_provider": self.settings.conversation.default_provider,
@@ -198,6 +341,352 @@ class YueCore:
             for item in coerce_anthropic_provider_configs(config)
         ] if config else []
         return {"providers": providers}
+
+    @staticmethod
+    def _active_provider_option(kind: str) -> dict[str, Any]:
+        option = ACTIVE_PROVIDER_BY_KIND.get(kind)
+        if option is None:
+            raise ValueError(f"Unsupported provider kind: {kind}")
+        return copy.deepcopy(option)
+
+    @staticmethod
+    def _provider_port_from_base_url(base_url: str, fallback: int) -> int:
+        parsed = urlsplit(base_url)
+        return int(parsed.port or fallback)
+
+    @staticmethod
+    def _provider_host_from_base_url(base_url: str, fallback: str) -> str:
+        parsed = urlsplit(base_url)
+        return str(parsed.hostname or fallback)
+
+    def _provider_details_from_kind(
+        self,
+        kind: str,
+        config: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        option = self._active_provider_option(kind)
+        base_url = str(
+            config.get("base_url")
+            or (
+                default_anthropic_base_url(kind)
+                if kind == "anthropic"
+                else default_openai_base_url(kind)
+            )
+        ).rstrip("/")
+        details: dict[str, Any] = {
+            "kind": kind,
+            "label": option["label"],
+            "family": option["family"],
+            "plugin_id": option["plugin_id"],
+            "provider_name": str(
+                config.get("provider_name") or option["default_provider_name"]
+            ).strip(),
+            "backend": str(config.get("backend") or kind).strip().lower(),
+            "base_url": base_url,
+            "host": self._provider_host_from_base_url(
+                base_url, str(option.get("default_host", ""))
+            ),
+            "port": self._provider_port_from_base_url(
+                base_url, int(option.get("default_port", 0) or 0)
+            ),
+            "model": str(config.get("model", "")).strip(),
+            "api_key_env": str(
+                config.get("api_key_env") or option.get("default_api_key_env", "")
+            ).strip(),
+            "timeout_seconds": float(config.get("timeout_seconds", 120.0)),
+            "health_timeout_seconds": float(
+                config.get("health_timeout_seconds", 5.0)
+            ),
+            "temperature": float(config.get("temperature", 0.7)),
+            "max_tokens": int(config.get("max_tokens", 1024)),
+            "headers": dict(config.get("headers", {})),
+        }
+        if kind == "anthropic":
+            details["anthropic_version"] = str(
+                config.get("anthropic_version", "2023-06-01")
+            ).strip()
+        return details
+
+    def _resolve_active_provider_details(self) -> dict[str, Any]:
+        provider_name = str(self.settings.conversation.default_provider).strip()
+
+        llama_config = self.settings.plugins.options.get("llama.cpp", {})
+        if (
+            isinstance(llama_config, Mapping)
+            and str(llama_config.get("provider_name", "")).strip() == provider_name
+        ):
+            details = self._provider_details_from_kind("llama.cpp", llama_config)
+            details["selected"] = True
+            return details
+
+        for item in self.openai_compatible_settings_snapshot()["providers"]:
+            if str(item.get("provider_name", "")).strip() == provider_name:
+                details = self._provider_details_from_kind(
+                    str(item.get("backend", "custom")).strip().lower(),
+                    item,
+                )
+                details["selected"] = True
+                return details
+
+        for item in self.anthropic_messages_settings_snapshot()["providers"]:
+            if str(item.get("provider_name", "")).strip() == provider_name:
+                details = self._provider_details_from_kind("anthropic", item)
+                details["selected"] = True
+                return details
+
+        return {
+            "kind": "fake.echo",
+            "label": "Built-in echo",
+            "family": "builtin",
+            "plugin_id": "core",
+            "provider_name": provider_name or "fake.echo",
+            "backend": "fake",
+            "base_url": "",
+            "host": "",
+            "port": 0,
+            "model": "echo",
+            "api_key_env": "",
+            "timeout_seconds": 30.0,
+            "health_timeout_seconds": 5.0,
+            "temperature": 0.0,
+            "max_tokens": 256,
+            "headers": {},
+            "selected": True,
+        }
+
+    def active_provider_settings_snapshot(self) -> dict[str, Any]:
+        return {
+            "single_provider_mode": True,
+            "active_provider": self._resolve_active_provider_details(),
+            "provider_options": [copy.deepcopy(item) for item in ACTIVE_PROVIDER_OPTIONS],
+            "conversation": self.conversation_settings_snapshot(),
+        }
+
+    def _normalize_active_provider_payload(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        require_model: bool = True,
+    ) -> dict[str, Any]:
+        kind = str(payload.get("kind") or payload.get("backend") or "").strip().lower()
+        option = self._active_provider_option(kind)
+        provider_name = str(
+            payload.get("provider_name") or option["default_provider_name"]
+        ).strip()
+        if not provider_name:
+            raise ValueError("provider_name must not be empty")
+
+        base_url = str(payload.get("base_url", "")).strip().rstrip("/")
+        host = str(payload.get("host", "")).strip()
+        port_raw = payload.get("port", option.get("default_port", 0))
+        try:
+            port = int(port_raw or 0)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("port must be a valid integer") from exc
+        if option["family"] == "local":
+            if not host:
+                host = str(option.get("default_host", "")).strip()
+            if port <= 0:
+                port = int(option.get("default_port", 0) or 0)
+        if not base_url:
+            if kind == "anthropic":
+                base_url = default_anthropic_base_url(kind).rstrip("/")
+            elif option["family"] == "local":
+                if not host or port <= 0:
+                    raise ValueError("host and port are required for local providers")
+                suffix = "" if kind == "llama.cpp" else "/v1"
+                base_url = f"http://{host}:{port}{suffix}"
+            else:
+                base_url = default_openai_base_url(kind).rstrip("/")
+
+        model = str(payload.get("model", "")).strip()
+        if require_model and not model:
+            raise ValueError("model must not be empty")
+
+        config: dict[str, Any] = {
+            "kind": kind,
+            "provider_name": provider_name,
+            "backend": "anthropic" if kind == "anthropic" else kind,
+            "base_url": base_url,
+            "model": model,
+            "api_key_env": str(
+                payload.get("api_key_env") or option.get("default_api_key_env", "")
+            ).strip(),
+            "timeout_seconds": float(payload.get("timeout_seconds", 120.0)),
+            "health_timeout_seconds": float(payload.get("health_timeout_seconds", 5.0)),
+            "temperature": float(payload.get("temperature", 0.7)),
+            "max_tokens": int(payload.get("max_tokens", 1024)),
+            "headers": dict(payload.get("headers", {})),
+        }
+        if kind == "anthropic":
+            config["anthropic_version"] = str(
+                payload.get("anthropic_version", "2023-06-01")
+            ).strip() or "2023-06-01"
+        return config
+
+    async def active_provider_model_catalog(
+        self,
+        payload: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if payload is None:
+            provider = self._normalize_active_provider_payload(
+                self._resolve_active_provider_details(),
+                require_model=False,
+            )
+        else:
+            raw_provider = payload.get("provider", payload)
+            if not isinstance(raw_provider, Mapping):
+                raise ValueError("provider must be an object")
+            provider = self._normalize_active_provider_payload(
+                raw_provider,
+                require_model=False,
+            )
+
+        model = str(provider.get("model", "")).strip()
+        probe_config = copy.deepcopy(provider)
+        probe_config["model"] = model or "__catalog_probe__"
+
+        try:
+            if provider["kind"] == "anthropic":
+                health = await AnthropicMessagesProvider(probe_config).health()
+            else:
+                health = await OpenAICompatibleProvider(probe_config).health()
+        except Exception as exc:
+            health = {
+                "provider": provider["provider_name"],
+                "backend": provider["backend"],
+                "base_url": provider["base_url"],
+                "model": model,
+                "ok": False,
+                "reachable": False,
+                "error": str(exc),
+                "models": [],
+            }
+
+        models = [str(item) for item in health.get("models", []) if str(item).strip()]
+        selected_model = model or (models[0] if models else "")
+        return {
+            "kind": provider["kind"],
+            "label": self._active_provider_option(provider["kind"])["label"],
+            "provider_name": provider["provider_name"],
+            "backend": provider["backend"],
+            "base_url": provider["base_url"],
+            "host": self._provider_host_from_base_url(provider["base_url"], ""),
+            "port": self._provider_port_from_base_url(provider["base_url"], 0),
+            "models": models,
+            "selected_model": selected_model,
+            "reachable": bool(health.get("reachable")),
+            "ok": bool(health.get("ok")),
+            "error": health.get("error"),
+            "model_required": True,
+            "auto_selected": bool(not model and selected_model),
+        }
+
+    async def update_active_provider_settings(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        persist: bool = False,
+    ) -> dict[str, Any]:
+        if not isinstance(payload, Mapping):
+            raise ValueError("active provider settings update payload must be an object")
+
+        raw_provider = payload.get("provider", payload)
+        if not isinstance(raw_provider, Mapping):
+            raise ValueError("provider must be an object")
+        provider = self._normalize_active_provider_payload(raw_provider)
+        option = self._active_provider_option(provider["kind"])
+
+        previous_enabled = copy.deepcopy(self.settings.plugins.enabled)
+        previous_options = copy.deepcopy(self.settings.plugins.options)
+        previous_default_provider = self.settings.conversation.default_provider
+        previous_routes = copy.deepcopy(self.settings.conversation.routes)
+
+        next_options = copy.deepcopy(self.settings.plugins.options)
+        next_enabled = [
+            str(item) for item in self.settings.plugins.enabled if str(item) != option["plugin_id"]
+        ]
+        next_enabled.insert(0, str(option["plugin_id"]))
+        self.settings.plugins.enabled = next_enabled[:1]
+
+        if provider["kind"] == "anthropic":
+            next_options["anthropic.messages"] = {
+                "providers": [
+                    {
+                        "provider_name": provider["provider_name"],
+                        "backend": provider["backend"],
+                        "base_url": provider["base_url"],
+                        "model": provider["model"],
+                        "api_key_env": provider["api_key_env"],
+                        "timeout_seconds": provider["timeout_seconds"],
+                        "health_timeout_seconds": provider["health_timeout_seconds"],
+                        "temperature": provider["temperature"],
+                        "max_tokens": provider["max_tokens"],
+                        "headers": provider["headers"],
+                        "anthropic_version": provider["anthropic_version"],
+                    }
+                ]
+            }
+        elif provider["kind"] == "llama.cpp":
+            next_options["llama.cpp"] = {
+                "provider_name": provider["provider_name"],
+                "base_url": provider["base_url"],
+                "model": provider["model"],
+                "timeout_seconds": provider["timeout_seconds"],
+                "health_timeout_seconds": provider["health_timeout_seconds"],
+                "temperature": provider["temperature"],
+                "max_tokens": provider["max_tokens"],
+                "headers": provider["headers"],
+            }
+        else:
+            next_options["openai.compat"] = {
+                "providers": [
+                    {
+                        "provider_name": provider["provider_name"],
+                        "backend": provider["backend"],
+                        "base_url": provider["base_url"],
+                        "model": provider["model"],
+                        "api_key_env": provider["api_key_env"],
+                        "timeout_seconds": provider["timeout_seconds"],
+                        "health_timeout_seconds": provider["health_timeout_seconds"],
+                        "temperature": provider["temperature"],
+                        "max_tokens": provider["max_tokens"],
+                        "headers": provider["headers"],
+                    }
+                ]
+            }
+        self.settings.plugins.options = next_options
+
+        self.settings.conversation.default_provider = provider["provider_name"]
+        for role in ("chat", "coding_agent"):
+            route = self.settings.conversation.routes.setdefault(
+                role,
+                {"provider": provider["provider_name"], "prompt_profile": role},
+            )
+            route["provider"] = provider["provider_name"]
+            if not str(route.get("prompt_profile", "")).strip():
+                route["prompt_profile"] = "default" if role == "chat" else "coding_agent"
+
+        self.conversations.default_provider = self.settings.conversation.default_provider
+        self.conversations.routes = self._normalize_conversation_routes(self.settings)
+        try:
+            await self._reload_plugins()
+        except Exception:
+            self.settings.plugins.enabled = previous_enabled
+            self.settings.plugins.options = previous_options
+            self.settings.conversation.default_provider = previous_default_provider
+            self.settings.conversation.routes = previous_routes
+            self.conversations.default_provider = previous_default_provider
+            self.conversations.routes = self._normalize_conversation_routes(self.settings)
+            await self._reload_plugins()
+            raise
+
+        snapshot = self.active_provider_settings_snapshot()
+        if persist:
+            save_settings(self.settings)
+        await self.audit.write("providers.active.updated", snapshot)
+        await self.events.publish(CoreEvent("providers.active.updated", snapshot))
+        return snapshot
 
     async def update_conversation_settings(
         self,
@@ -406,6 +895,8 @@ class YueCore:
             self.services.register("core.shell_sessions", self.shell_sessions, owner="core")
         if "core.approvals" not in self.services:
             self.services.register("core.approvals", self.approvals, owner="core")
+        if "core.tool_activity" not in self.services:
+            self.services.register("core.tool_activity", self.tool_activity, owner="core")
         if "desktop.session" not in self.services:
             self.services.register("desktop.session", self.desktop, owner="core")
         if "conversation.store" not in self.services:
@@ -416,34 +907,45 @@ class YueCore:
             self.services.register(
                 "conversation.orchestrator", self.conversations, owner="core"
             )
+        if not self._event_unsubscribes:
+            self._event_unsubscribes = self._subscribe_tool_activity()
         self.conversations.resume()
         self.settings.core.data_dir.mkdir(parents=True, exist_ok=True)
-        self.registry.register(ApprovalRequestTool())
-        self.registry.register(EchoTool())
-        self.registry.register(HealthTool())
-        self.registry.register(FileReadTool())
-        self.registry.register(FileListTool())
-        self.registry.register(FileSearchTool())
-        self.registry.register(FileWriteTool())
-        self.registry.register(FileMoveTool())
-        self.registry.register(FileDeleteTool())
-        self.registry.register(FileEditTool())
-        self.registry.register(ShellExecTool())
-        self.registry.register(ShellRunTool())
-        self.registry.register(ShellSessionTool())
-        self.registry.register(ProcessListTool())
-        self.registry.register(ProcessKillTool())
-        self.registry.register(GitStatusTool())
-        self.registry.register(GitDiffTool())
-        self.registry.register(PackageInstallTool())
-        self.registry.register(WorkspaceListTool())
-        self.registry.register(WorkspaceReadTool())
-        self.registry.register(WorkspaceSearchTool())
-        self.registry.register(WorkspaceGrepTool())
-        self.registry.register(WorkspaceWriteTool())
-        self.registry.register(WorkspaceEditTool())
-        self.registry.register(WorkspaceOpsTool())
-        self.registry.register(TodoUpdateTool())
+        builtin_tools: list[Tool] = [
+            ApprovalRequestTool(),
+            AskUserApprovalTool(),
+            EchoTool(),
+            HealthTool(),
+            FileReadTool(),
+            FileListTool(),
+            FileSearchTool(),
+            FileWriteTool(),
+            FileMoveTool(),
+            FileDeleteTool(),
+            FileEditTool(),
+            ShellExecTool(),
+            ShellRunTool(),
+            ShellSessionTool(),
+            ProcessListTool(),
+            ProcessKillTool(),
+            GitStatusTool(),
+            GitDiffTool(),
+            PackageInstallTool(),
+            WorkspaceListTool(),
+            WorkspaceReadTool(),
+            WorkspaceSearchTool(),
+            WorkspaceGrepTool(),
+            WorkspaceWriteTool(),
+            WorkspaceEditTool(),
+            WorkspaceOpsTool(),
+            TodoUpdateTool(),
+        ]
+        for tool in builtin_tools:
+            self.registry.register(tool)
+        for tool in builtin_tools:
+            alias_name = CODING_AGENT_TOOL_ALIASES.get(tool.spec.name)
+            if alias_name:
+                self.registry.register(ToolAlias(tool, alias_name))
         self.providers.register(EchoModelProvider(), owner="core")
         try:
             await self.plugins.load_enabled()
@@ -475,6 +977,9 @@ class YueCore:
         self.registry.unregister_plugin("core")
         self.providers.unregister_owner("core")
         self.services.unregister_owner("core")
+        for unsubscribe in self._event_unsubscribes:
+            unsubscribe()
+        self._event_unsubscribes = []
         self._started = False
 
     async def invoke(
@@ -490,6 +995,22 @@ class YueCore:
         return await self.executor.execute(
             ToolRequest(tool_name, arguments, actor=actor, session_id=session_id)
         )
+
+    async def invoke_many(
+        self,
+        requests: list[tuple[str, dict[str, Any]]],
+        *,
+        actor: str = "user",
+        session_id: str | None = None,
+        parallel: bool = False,
+    ) -> list[ToolResult]:
+        if not self._started:
+            raise RuntimeError("YueCore must be started before invoking tools")
+        tool_requests = [
+            ToolRequest(tool_name, arguments, actor=actor, session_id=session_id)
+            for tool_name, arguments in requests
+        ]
+        return await self.executor.execute_many(tool_requests, parallel=parallel)
 
     async def __aenter__(self) -> "YueCore":
         await self.start()

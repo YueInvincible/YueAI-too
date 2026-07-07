@@ -102,6 +102,29 @@ class AnthropicMockHandler(BaseHTTPRequestHandler):
 
 
 class AnthropicPluginTests(unittest.IsolatedAsyncioTestCase):
+    async def test_missing_api_key_skips_provider_instead_of_crashing_core(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            settings.conversation.store_backend = "memory"
+            settings.plugins.roots = [(Path.cwd() / "plugins").resolve()]
+            settings.plugins.enabled = ["anthropic.messages"]
+            settings.plugins.options = {
+                "anthropic.messages": {
+                    "providers": [
+                        {
+                            "provider_name": "claude.coder",
+                            "backend": "anthropic",
+                            "base_url": "http://127.0.0.1:9999",
+                            "model": "claude-sonnet-4-20250514",
+                        }
+                    ]
+                }
+            }
+            core = YueCore(settings)
+            async with core:
+                self.assertNotIn("claude.coder", core.providers.names())
+
     async def test_streaming_tool_loop_against_anthropic_messages_server(self):
         AnthropicMockHandler.requests = []
         server = ThreadingHTTPServer(("127.0.0.1", 0), AnthropicMockHandler)

@@ -15,6 +15,19 @@ from .version import VERSION
 from .contracts import CORE_API_VERSION
 
 
+def _write_stdout_text(text: str) -> None:
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        payload = f"{text}\n".encode("utf-8", errors="replace")
+        buffer = getattr(sys.stdout, "buffer", None)
+        if buffer is None:
+            sys.stdout.write(payload.decode("utf-8", errors="replace"))
+        else:
+            buffer.write(payload)
+            buffer.flush()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="yue-core")
     parser.add_argument("--config", type=Path, help="Path to a TOML configuration file")
@@ -118,7 +131,7 @@ async def run(args: argparse.Namespace) -> int:
                 provider_role=args.provider_role,
                 actor="cli",
             )
-            print(assistant.content)
+            _write_stdout_text(assistant.content)
             return 0
     if args.command == "desktop-demo":
         launch_tk_desktop_demo(settings)

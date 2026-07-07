@@ -259,6 +259,52 @@ class ConversationOrchestratorTests(unittest.IsolatedAsyncioTestCase):
             request.messages[0].content,
         )
 
+    async def test_coding_agent_request_uses_preferred_tool_catalog(self):
+        provider = RecordingProvider()
+        self.core.providers.register(provider, owner="test")
+        self.core.conversations.routes["coding_agent"] = {
+            "provider": "test.recording",
+            "prompt_profile": "coding_agent",
+        }
+        conversation = await self.core.conversations.create()
+
+        await self.core.conversations.send(
+            conversation.id,
+            "inspect and fix",
+            provider_role="coding_agent",
+        )
+
+        request = provider.requests[-1]
+        tool_names = [spec.name for spec in request.tools]
+        self.assertIn("workspace_read", tool_names)
+        self.assertIn("workspace_edit", tool_names)
+        self.assertIn("shell_run", tool_names)
+        self.assertIn("ask_user_approval", tool_names)
+        self.assertIn("git_diff", tool_names)
+        self.assertIn("todo_update", tool_names)
+        self.assertNotIn("workspace.read", tool_names)
+        self.assertNotIn("shell.run", tool_names)
+        self.assertNotIn("file.read", tool_names)
+        self.assertNotIn("file.write", tool_names)
+        self.assertNotIn("shell.exec", tool_names)
+        self.assertNotIn("approval.request", tool_names)
+
+    async def test_chat_request_keeps_legacy_core_tools_available(self):
+        provider = RecordingProvider()
+        self.core.providers.register(provider, owner="test")
+        conversation = await self.core.conversations.create()
+
+        await self.core.conversations.send(
+            conversation.id,
+            "hello",
+            provider_name="test.recording",
+        )
+
+        request = provider.requests[-1]
+        tool_names = [spec.name for spec in request.tools]
+        self.assertIn("file.read", tool_names)
+        self.assertIn("approval.request", tool_names)
+
     async def test_tool_loop_denies_dangerous_model_action_with_structured_result(self):
         class DangerousToolProvider:
             name = "test.dangerous-tool"

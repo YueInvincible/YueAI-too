@@ -29,6 +29,7 @@ from .contracts import (
 from .errors import YueCoreError
 from .events import EventBus
 from .providers import ModelProviderRegistry
+from .tool_catalog import filter_tool_specs_for_role
 from .tools import ToolExecutor, ToolRegistry
 
 
@@ -522,7 +523,7 @@ class ConversationOrchestrator:
                         history,
                         provider_role=provider_role,
                     ),
-                    tools=self.tools.list_specs(),
+                    tools=self._model_tools(provider_role),
                     run_id=run_id,
                 )
                 text_parts: list[str] = []
@@ -606,7 +607,21 @@ class ConversationOrchestrator:
                         f"Tool iteration limit reached ({self.max_tool_iterations})"
                     )
 
-                for call in tool_calls:
+                tool_requests = [
+                    ToolRequest(
+                        call.name,
+                        call.arguments,
+                        actor="model",
+                        session_id=conversation_id,
+                        metadata={
+                            "run_id": run_id,
+                            "conversation_id": conversation_id,
+                            "tool_call_id": call.id,
+                        },
+                    )
+                    for call in tool_calls
+                ]
+                for call, tool_request in zip(tool_calls, tool_requests, strict=False):
                     self._raise_if_cancelled(cancel_event)
                     await self.events.publish(
                         CoreEvent(
@@ -614,19 +629,17 @@ class ConversationOrchestrator:
                             {
                                 "run_id": run_id,
                                 "conversation_id": conversation_id,
+                                "request_id": tool_request.id,
                                 "tool_call": call.to_dict(),
                             },
                             correlation_id=run_id,
                         )
                     )
-                    result = await self.executor.execute(
-                        ToolRequest(
-                            call.name,
-                            call.arguments,
-                            actor="model",
-                            session_id=conversation_id,
-                        )
-                    )
+                results = await self.executor.execute_many(
+                    tool_requests,
+                    parallel=self._can_run_parallel_tool_batch(tool_calls),
+                )
+                for call, result in zip(tool_calls, results, strict=False):
                     tool_message = ChatMessage(
                         conversation_id=conversation_id,
                         role=MessageRole.TOOL,
@@ -740,6 +753,20 @@ class ConversationOrchestrator:
         marker = "...[truncated]"
         return rendered[: self.max_tool_output_chars - len(marker)] + marker
 
+    def _can_run_parallel_tool_batch(
+        self,
+        tool_calls: Sequence[ModelToolCall],
+    ) -> bool:
+        if len(tool_calls) < 2:
+            return False
+        for call in tool_calls:
+            spec = self.tools.get(call.name)
+            if not bool(spec.spec.metadata.get("parallel_safe", False)):
+                return False
+            if bool(spec.spec.metadata.get("mutates_state", False)):
+                return False
+        return True
+
     @staticmethod
     def _tool_result_payload(result) -> dict[str, Any]:
         return {
@@ -750,6 +777,9 @@ class ConversationOrchestrator:
             "output": result.output if result.status is ToolStatus.SUCCEEDED else None,
             "error": result.error,
         }
+
+    def _model_tools(self, provider_role: str):
+        return filter_tool_specs_for_role(self.tools.list_specs(), provider_role)
 
     def resolve_provider(
         self,

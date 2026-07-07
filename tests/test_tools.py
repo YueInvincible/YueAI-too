@@ -1,12 +1,15 @@
 import unittest
 import asyncio
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import patch
 
+from yue_core.app import CODING_AGENT_TOOL_ALIASES, ToolAlias
 from yue_core.audit import AuditLog
 from yue_core.builtin_tools import (
     ApprovalRequestTool,
+    AskUserApprovalTool,
     EchoTool,
     FileDeleteTool,
     FileEditTool,
@@ -36,6 +39,8 @@ from yue_core.builtin_tools import (
 from yue_core.contracts import (
     Capability,
     RiskLevel,
+    ToolContext,
+    ToolOutputKind,
     ToolRequest,
     ToolSpec,
     ToolStatus,
@@ -74,12 +79,60 @@ class AllowApprovalProvider:
         return True
 
 
+class DirtyShellRunTool:
+    spec = ToolSpec(
+        name="demo.command.output",
+        description="Return intentionally unsanitized command output.",
+        input_schema={
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        capability=Capability.SHELL_EXECUTE,
+        risk=RiskLevel.HIGH,
+        output_kind=ToolOutputKind.COMMAND_OUTPUT,
+    )
+
+    async def invoke(self, arguments, context: ToolContext):
+        return {
+            "stdout": "start\n\n\x1b[31mred\x1b[0m\n",
+            "stderr": "\x1b[33mwarn\x1b[0m\n",
+            "sessions": [
+                {
+                    "stdout": "nested\n\n\x1b[32mok\x1b[0m\n",
+                    "stderr": "",
+                }
+            ],
+        }
+
+
+class ParallelReadTool:
+    spec = ToolSpec(
+        name="demo.parallel.read",
+        description="Parallel-safe read tool.",
+        input_schema={
+            "type": "object",
+            "properties": {"value": {"type": "string"}},
+            "required": ["value"],
+            "additionalProperties": False,
+        },
+        capability=Capability.FILE_READ,
+        risk=RiskLevel.LOW,
+        metadata={"parallel_safe": True, "mutates_state": False},
+    )
+
+    async def invoke(self, arguments, context: ToolContext):
+        await asyncio.sleep(0.01)
+        return {"value": arguments["value"]}
+
+
 class ToolExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.temp_context = workspace_temp_dir()
         self.temp = self.temp_context.__enter__()
         registry = ToolRegistry()
         registry.register(ApprovalRequestTool())
+        registry.register(AskUserApprovalTool())
         registry.register(EchoTool())
         registry.register(FileReadTool())
         registry.register(FileListTool())
@@ -90,6 +143,10 @@ class ToolExecutorTests(unittest.IsolatedAsyncioTestCase):
         registry.register(WorkspaceGrepTool())
         registry.register(TodoUpdateTool())
         registry.register(ShellSessionTool())
+        for name, tool in list(registry._tools.items()):
+            alias_name = CODING_AGENT_TOOL_ALIASES.get(name)
+            if alias_name:
+                registry.register(ToolAlias(tool, alias_name))
         self.shell_sessions = ShellSessionManager()
         self.observe_audit = AuditLog(self.temp / "audit.jsonl")
         self.executor = ToolExecutor(
@@ -113,6 +170,7 @@ class ToolExecutorTests(unittest.IsolatedAsyncioTestCase):
         admin_registry = ToolRegistry()
         for tool in (
             ApprovalRequestTool(),
+            AskUserApprovalTool(),
             EchoTool(),
             FileReadTool(),
             FileListTool(),
@@ -139,6 +197,10 @@ class ToolExecutorTests(unittest.IsolatedAsyncioTestCase):
             TodoUpdateTool(),
         ):
             admin_registry.register(tool)
+        for name, tool in list(admin_registry._tools.items()):
+            alias_name = CODING_AGENT_TOOL_ALIASES.get(name)
+            if alias_name:
+                admin_registry.register(ToolAlias(tool, alias_name))
         self.admin_audit = AuditLog(self.temp / "audit-admin.jsonl")
         self.admin_executor = ToolExecutor(
             admin_registry,
@@ -253,6 +315,46 @@ class ToolExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.output["returned_lines"], 160)
         self.assertIn("[TRUNCATED: Output too long.", result.output["content"])
 
+    async def test_file_read_sanitizes_file_content_output(self):
+        await self.admin_executor.execute(
+            ToolRequest(
+                "file.write",
+                {
+                    "path": "notes/dirty.txt",
+                    "content": "alpha\n\n\x1b[31mbeta\x1b[0m\n\n\ngamma\n",
+                },
+            )
+        )
+
+        result = await self.executor.execute(
+            ToolRequest("file.read", {"path": "notes/dirty.txt"})
+        )
+
+        self.assertEqual(result.status, ToolStatus.SUCCEEDED)
+        self.assertNotIn("\x1b", result.output["content"])
+        self.assertNotIn("\n\n\n", result.output["content"])
+        self.assertEqual(result.output["content"], "alpha\n\nbeta\n\ngamma")
+        self.assertEqual(result.output["returned_lines"], 5)
+
+    async def test_file_search_sanitizes_match_lines(self):
+        await self.admin_executor.execute(
+            ToolRequest(
+                "file.write",
+                {
+                    "path": "notes/search.txt",
+                    "content": "prefix \x1b[31mmatch\x1b[0m suffix\n",
+                },
+            )
+        )
+
+        result = await self.executor.execute(
+            ToolRequest("file.search", {"pattern": "match", "path": "notes"})
+        )
+
+        self.assertEqual(result.status, ToolStatus.SUCCEEDED)
+        self.assertEqual(result.output["matches"][0]["line"], "prefix match suffix")
+        self.assertFalse(result.output["matches"][0]["line_truncated"])
+
     async def test_file_move_and_delete(self):
         await self.admin_executor.execute(
             ToolRequest("file.write", {"path": "drafts/item.txt", "content": "payload"})
@@ -284,7 +386,15 @@ class ToolExecutorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result.status, ToolStatus.SUCCEEDED)
         self.assertTrue(result.output["dry_run"])
-        self.assertIn("cmd", result.output["argv"][0].lower() if sys.platform == "win32" else result.output["argv"][0])
+        if sys.platform == "win32":
+            self.assertIn("powershell", result.output["argv"][0].lower())
+            self.assertIn("-NoProfile", result.output["argv"])
+            self.assertIn("-NonInteractive", result.output["argv"])
+        else:
+            self.assertTrue(
+                result.output["argv"][0].endswith("bash")
+                or result.output["argv"][0] == "/bin/sh"
+            )
 
     async def test_command_output_sanitizer_strips_ansi_and_truncates(self):
         raw = "start\n\n\x1b[31mred\x1b[0m\n" + ("line\n" * 220)
@@ -295,6 +405,61 @@ class ToolExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("red", cleaned)
         self.assertNotIn("\n\n\n", cleaned)
         self.assertIn("[TRUNCATED: Output too long.", cleaned)
+
+    async def test_executor_sanitizes_command_style_output_after_tool_returns(self):
+        registry = ToolRegistry()
+        registry.register(DirtyShellRunTool())
+        audit = AuditLog(self.temp / "audit-dirty-shell.jsonl")
+        executor = ToolExecutor(
+            registry,
+            PermissionEngine("admin", interactive_approval=False),
+            EventBus(),
+            audit,
+            services={"core.audit": audit},
+        )
+        result = await executor.execute(ToolRequest("demo.command.output", {}))
+        self.assertEqual(result.status, ToolStatus.SUCCEEDED)
+        self.assertNotIn("\x1b", result.output["stdout"])
+        self.assertNotIn("\x1b", result.output["stderr"])
+        self.assertNotIn("\n\n\n", result.output["stdout"])
+        self.assertNotIn("\x1b", result.output["sessions"][0]["stdout"])
+
+    async def test_execute_many_runs_parallel_safe_batch(self):
+        registry = ToolRegistry()
+        registry.register(ParallelReadTool())
+        audit = AuditLog(self.temp / "audit-parallel.jsonl")
+        executor = ToolExecutor(
+            registry,
+            PermissionEngine("admin", interactive_approval=False),
+            EventBus(),
+            audit,
+            services={"core.audit": audit},
+        )
+        results = await executor.execute_many(
+            [
+                ToolRequest("demo.parallel.read", {"value": "a"}),
+                ToolRequest("demo.parallel.read", {"value": "b"}),
+            ],
+            parallel=True,
+        )
+        self.assertEqual([item.output["value"] for item in results], ["a", "b"])
+
+    async def test_execute_many_rejects_non_parallel_safe_batch(self):
+        registry = ToolRegistry()
+        registry.register(DirtyShellRunTool())
+        audit = AuditLog(self.temp / "audit-nonparallel.jsonl")
+        executor = ToolExecutor(
+            registry,
+            PermissionEngine("admin", interactive_approval=False),
+            EventBus(),
+            audit,
+            services={"core.audit": audit},
+        )
+        with self.assertRaises(ValueError):
+            await executor.execute_many(
+                [ToolRequest("demo.command.output", {})],
+                parallel=True,
+            )
 
     async def test_package_install_supports_dry_run(self):
         result = await self.admin_executor.execute(
@@ -337,10 +502,31 @@ class ToolExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(diff_result.status, ToolStatus.SUCCEEDED)
         self.assertEqual(diff_result.output["argv"][:2], ["git", "diff"])
 
+    async def test_git_diff_truncates_with_head_and_tail(self):
+        diff_body = "HEAD\n" + ("x" * 200) + "\nTAIL"
+        completed = subprocess.CompletedProcess(
+            args=["git", "diff"],
+            returncode=0,
+            stdout=diff_body,
+            stderr="",
+        )
+        with patch("yue_core.builtin_tools._run_command_args", return_value=completed):
+            result = await self.admin_executor.execute(
+                ToolRequest("git.diff", {"max_chars": 80})
+            )
+        self.assertEqual(result.status, ToolStatus.SUCCEEDED)
+        self.assertTrue(result.output["truncated"])
+        self.assertIn("HEAD", result.output["diff"])
+        self.assertIn("TAIL", result.output["diff"])
+        self.assertTrue(
+            "[TRUNCATED: Output too long." in result.output["diff"]
+            or "...[truncated]..." in result.output["diff"]
+        )
+
     async def test_workspace_tool_aliases_round_trip(self):
         write_result = await self.admin_executor.execute(
             ToolRequest(
-                "workspace.write",
+                "workspace_write",
                 {
                     "path": "workspace/sample.txt",
                     "content": "alpha\nbeta\n",
@@ -352,7 +538,7 @@ class ToolExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         append_result = await self.admin_executor.execute(
             ToolRequest(
-                "workspace.write",
+                "workspace_write",
                 {
                     "path": "workspace/sample.txt",
                     "content": "gamma\n",
@@ -363,13 +549,13 @@ class ToolExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(append_result.status, ToolStatus.SUCCEEDED)
 
         read_result = await self.executor.execute(
-            ToolRequest("workspace.read", {"path": "workspace/sample.txt"})
+            ToolRequest("workspace_read", {"path": "workspace/sample.txt"})
         )
         self.assertIn("gamma", read_result.output["content"])
 
         edit_result = await self.admin_executor.execute(
             ToolRequest(
-                "workspace.edit",
+                "workspace_edit",
                 {
                     "path": "workspace/sample.txt",
                     "search_block": "beta",
@@ -380,20 +566,63 @@ class ToolExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(edit_result.output["replacements"], 1)
 
         grep_result = await self.executor.execute(
-            ToolRequest("workspace.grep", {"pattern": "delta", "path": "workspace"})
+            ToolRequest("workspace_grep", {"pattern": "delta", "path": "workspace"})
         )
         self.assertEqual(grep_result.status, ToolStatus.SUCCEEDED)
         self.assertEqual(grep_result.output["matches"][0]["path"], "workspace/sample.txt")
 
         search_result = await self.executor.execute(
-            ToolRequest("workspace.search", {"query": "sample", "type": "path"})
+            ToolRequest("workspace_search", {"query": "sample", "type": "path"})
         )
         self.assertTrue(any(item["path"] == "workspace/sample.txt" for item in search_result.output["matches"]))
 
         list_result = await self.executor.execute(
-            ToolRequest("workspace.list", {"path": "workspace", "depth": 2})
+            ToolRequest("workspace_list", {"path": "workspace", "depth": 2})
         )
         self.assertTrue(any(item["path"] == "workspace/sample.txt" for item in list_result.output["entries"]))
+
+    async def test_workspace_read_sanitizes_file_content_output(self):
+        await self.admin_executor.execute(
+            ToolRequest(
+                "workspace.write",
+                {
+                    "path": "workspace/dirty.txt",
+                    "content": "one\n\n\x1b[32mtwo\x1b[0m\n\n\nthree\n",
+                    "mode": "create_only",
+                },
+            )
+        )
+
+        result = await self.executor.execute(
+            ToolRequest("workspace.read", {"path": "workspace/dirty.txt"})
+        )
+
+        self.assertEqual(result.status, ToolStatus.SUCCEEDED)
+        self.assertEqual(result.output["path"], "workspace/dirty.txt")
+        self.assertEqual(result.output["content"], "one\n\ntwo\n\nthree")
+        self.assertEqual(result.output["returned_lines"], 5)
+        self.assertNotIn("\x1b", result.output["content"])
+        self.assertNotIn("\n\n\n", result.output["content"])
+
+    async def test_workspace_grep_sanitizes_match_lines(self):
+        await self.admin_executor.execute(
+            ToolRequest(
+                "workspace.write",
+                {
+                    "path": "workspace/search.txt",
+                    "content": "start \x1b[32mneedle\x1b[0m end\n",
+                    "mode": "create_only",
+                },
+            )
+        )
+
+        result = await self.executor.execute(
+            ToolRequest("workspace.grep", {"pattern": "needle", "path": "workspace"})
+        )
+
+        self.assertEqual(result.status, ToolStatus.SUCCEEDED)
+        self.assertEqual(result.output["matches"][0]["line"], "start needle end")
+        self.assertFalse(result.output["matches"][0]["line_truncated"])
 
     async def test_workspace_ops_and_todo_update(self):
         await self.admin_executor.execute(
@@ -424,7 +653,7 @@ class ToolExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         todo_result = await self.executor.execute(
             ToolRequest(
-                "todo.update",
+                "todo_update",
                 {"items": [{"text": "audit runtime", "done": False}]},
                 session_id="session-1",
             )
@@ -435,13 +664,15 @@ class ToolExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def test_shell_run_supports_dry_run(self):
         result = await self.admin_executor.execute(
             ToolRequest(
-                "shell.run",
+                "shell_run",
                 {"command": f'"{sys.executable}" -c "print(123)"', "timeout": 5, "dry_run": True},
             )
         )
         self.assertEqual(result.status, ToolStatus.SUCCEEDED)
         self.assertTrue(result.output["dry_run"])
         self.assertEqual(result.output["risk_level"], "high")
+        if sys.platform == "win32":
+            self.assertIn("-NoProfile", result.output["argv"])
 
     async def test_approval_request_tool_returns_structured_approval(self):
         topics = []
@@ -469,10 +700,26 @@ class ToolExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("approval.requested", audit_text)
         self.assertIn("approval.resolved", audit_text)
 
+    async def test_ask_user_approval_alias_returns_structured_approval(self):
+        result = await self.executor.execute(
+            ToolRequest(
+                "ask_user_approval",
+                {
+                    "action_description": "Allow deleting temp files",
+                    "risk_level": "medium",
+                },
+                actor="model",
+                session_id="session-1",
+            )
+        )
+        self.assertEqual(result.status, ToolStatus.SUCCEEDED)
+        self.assertTrue(result.output["approved"])
+        self.assertEqual(result.output["outcome"], "allow")
+
     async def test_shell_session_supports_dry_run(self):
         result = await self.admin_executor.execute(
             ToolRequest(
-                "shell.session",
+                "shell_session",
                 {
                     "action": "start",
                     "session_id": "dev-server",
@@ -484,6 +731,8 @@ class ToolExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.status, ToolStatus.SUCCEEDED)
         self.assertTrue(result.output["dry_run"])
         self.assertEqual(result.output["session_id"], "dev-server")
+        if sys.platform == "win32":
+            self.assertIn("-NoProfile", result.output["argv"])
 
     async def test_shell_session_manager_start_read_stop(self):
         fake_process = FakeProcess(stdout=b"hello\n", stderr=b"\x1b[31mwarn\x1b[0m\n")

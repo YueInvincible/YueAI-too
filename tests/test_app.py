@@ -196,6 +196,85 @@ class AppLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot["providers"][0]["provider_name"], "claude.coder")
         self.assertEqual(snapshot["providers"][0]["model"], "claude-3-7-sonnet-latest")
 
+    async def test_update_active_provider_settings_switches_to_single_local_provider(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            settings.plugins.roots = [(Path.cwd() / "plugins").resolve()]
+            settings.plugins.enabled = ["openai.compat", "llama.cpp"]
+            settings.plugins.options = {
+                "openai.compat": {
+                    "providers": [
+                        {
+                            "provider_name": "ollama.chat",
+                            "backend": "ollama",
+                            "base_url": "http://127.0.0.1:11434/v1",
+                            "model": "qwen2.5:7b-instruct",
+                        }
+                    ]
+                },
+                "llama.cpp": {
+                    "provider_name": "localhost.chat",
+                    "base_url": "http://127.0.0.1:8080",
+                    "model": "Qwen3-4B-Q5_K_M.gguf",
+                },
+            }
+            settings.conversation.default_provider = "ollama.chat"
+            settings.conversation.routes["chat"] = {
+                "provider": "ollama.chat",
+                "prompt_profile": "default",
+            }
+            settings.conversation.routes["coding_agent"] = {
+                "provider": "ollama.chat",
+                "prompt_profile": "coding_agent",
+            }
+            core = YueCore(settings)
+            await core.start()
+            snapshot = await core.update_active_provider_settings(
+                {
+                    "provider": {
+                        "kind": "llama.cpp",
+                        "provider_name": "localhost.chat",
+                        "host": "127.0.0.1",
+                        "port": 9000,
+                        "model": "qwen3-coder.gguf",
+                        "temperature": 0.3,
+                        "max_tokens": 4096,
+                    }
+                }
+            )
+            await core.stop()
+        self.assertEqual(snapshot["active_provider"]["kind"], "llama.cpp")
+        self.assertEqual(snapshot["active_provider"]["port"], 9000)
+        self.assertEqual(snapshot["conversation"]["default_provider"], "localhost.chat")
+        self.assertEqual(snapshot["conversation"]["routes"]["chat"]["provider"], "localhost.chat")
+
+    async def test_active_provider_model_catalog_returns_discovered_models(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            core = YueCore(settings)
+            await core.start()
+            with patch("yue_core.app.OpenAICompatibleProvider.health", return_value={
+                "ok": True,
+                "reachable": True,
+                "models": ["qwen2.5:7b", "llama3.1:8b"],
+            }):
+                catalog = await core.active_provider_model_catalog(
+                    {
+                        "provider": {
+                            "kind": "ollama",
+                            "provider_name": "ollama.chat",
+                            "host": "127.0.0.1",
+                            "port": 11434,
+                        }
+                    }
+                )
+            await core.stop()
+        self.assertTrue(catalog["ok"])
+        self.assertEqual(catalog["selected_model"], "qwen2.5:7b")
+        self.assertEqual(catalog["models"][1], "llama3.1:8b")
+
     async def test_stop_kills_active_shell_sessions(self):
         with workspace_temp_dir() as temp:
             settings = Settings()

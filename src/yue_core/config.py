@@ -22,6 +22,8 @@ DEFAULT_CODING_PROMPT_PROFILE = {
     "system_instruction": "You are responsible for implementing code changes safely and validating them with real checks.",
     "tool_instruction": (
         "Inspect relevant files before editing. Prefer targeted reads/searches first, then edit only what is needed. "
+        "When several independent read-only inspections are needed, call multiple read tools in the same turn. "
+        "Keep writes, edits, and shell actions sequential unless the tools explicitly indicate parallel safety. "
         "Run verification commands when they materially prove the change. Avoid destructive actions unless explicitly requested."
     ),
     "response_instruction": "State assumptions, verification, and remaining risks clearly.",

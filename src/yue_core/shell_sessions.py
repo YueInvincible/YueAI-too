@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from .builtin_tools import _sanitize_command_output
+from .shell_utils import build_shell_argv
 
 
 def _utc_now() -> datetime:
@@ -16,9 +16,7 @@ def _utc_now() -> datetime:
 
 
 def _shell_argv(command: str) -> list[str]:
-    if os.name == "nt":
-        return [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/s", "/c", command]
-    return ["/bin/sh", "-lc", command]
+    return build_shell_argv(command)
 
 
 @dataclass(slots=True)

@@ -11,14 +11,35 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from .contracts import Capability, PermissionOutcome, RiskLevel, ToolContext, ToolSpec
+from .contracts import (
+    Capability,
+    PermissionOutcome,
+    RiskLevel,
+    ToolContext,
+    ToolOutputKind,
+    ToolSpec,
+)
 from .contracts import CoreEvent
+from .shell_utils import build_shell_argv
 
 _ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 _TOOL_OUTPUT_LINE_LIMIT = 160
+_SEARCH_MATCH_CHAR_LIMIT = 500
 _TRUNCATED_WARNING = (
     "[TRUNCATED: Output too long. Use grep or narrower filters to find specific info]"
 )
+_SHORT_TRUNCATED_MARKER = "...[truncated]..."
+
+
+def _tool_metadata(
+    *,
+    parallel_safe: bool = False,
+    mutates_state: bool = False,
+) -> dict[str, bool]:
+    return {
+        "parallel_safe": parallel_safe,
+        "mutates_state": mutates_state,
+    }
 
 
 def _workspace_root(context: ToolContext) -> Path:
@@ -89,6 +110,31 @@ def _sanitize_command_output(text: str, *, max_lines: int = _TOOL_OUTPUT_LINE_LI
     cleaned_lines = _collapse_blank_lines(normalized.split("\n"))
     truncated_lines, truncated = _truncate_lines(cleaned_lines, max_lines=max_lines)
     return "\n".join(truncated_lines).strip("\n"), truncated
+
+
+def _truncate_text_chars(
+    text: str,
+    *,
+    max_chars: int,
+    marker: str = _TRUNCATED_WARNING,
+) -> tuple[str, bool]:
+    if len(text) <= max_chars:
+        return text, False
+    selected_marker = marker
+    available = max_chars - len(selected_marker)
+    if available <= 1 and len(_SHORT_TRUNCATED_MARKER) < max_chars:
+        selected_marker = _SHORT_TRUNCATED_MARKER
+        available = max_chars - len(selected_marker)
+    if available <= 1:
+        return text[:max_chars], True
+    head = available // 2
+    tail = available - head
+    return f"{text[:head]}{selected_marker}{text[-tail:]}", True
+
+
+def _sanitize_search_match_line(line: str, *, max_chars: int = _SEARCH_MATCH_CHAR_LIMIT) -> tuple[str, bool]:
+    normalized = _strip_ansi(line).replace("\r", " ").replace("\n", " ").strip()
+    return _truncate_text_chars(normalized, max_chars=max_chars)
 
 
 def _truncate_file_lines(lines: Sequence[str], *, max_lines: int = _TOOL_OUTPUT_LINE_LIMIT) -> tuple[list[str], bool]:
@@ -162,6 +208,8 @@ class FileReadTool:
         },
         capability=Capability.FILE_READ,
         risk=RiskLevel.LOW,
+        output_kind=ToolOutputKind.FILE_CONTENT,
+        metadata=_tool_metadata(parallel_safe=True),
     )
 
     async def invoke(self, arguments: Mapping[str, Any], context: ToolContext) -> Any:
@@ -402,11 +450,13 @@ class FileSearchTool:
                 continue
             for line_number, line in enumerate(lines, start=1):
                 if pattern.search(line):
+                    cleaned_line, line_truncated = _sanitize_search_match_line(line)
                     results.append(
                         {
                             "path": item.relative_to(root).as_posix(),
                             "line_number": line_number,
-                            "line": line,
+                            "line": cleaned_line,
+                            "line_truncated": line_truncated,
                         }
                     )
                     if len(results) >= max_results:
@@ -432,17 +482,15 @@ class ShellExecTool:
         capability=Capability.SHELL_EXECUTE,
         risk=RiskLevel.HIGH,
         timeout_seconds=120.0,
+        output_kind=ToolOutputKind.COMMAND_OUTPUT,
+        metadata=_tool_metadata(mutates_state=True),
     )
 
     async def invoke(self, arguments: Mapping[str, Any], context: ToolContext) -> Any:
         cwd = _resolve_workspace_path(context, str(arguments.get("cwd", ".")))
         timeout = float(arguments.get("timeout_seconds", 120.0))
         dry_run = bool(arguments.get("dry_run", False))
-        shell_argv = (
-            [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/s", "/c", str(arguments["command"])]
-            if os.name == "nt"
-            else ["/bin/sh", "-lc", str(arguments["command"])]
-        )
+        shell_argv = build_shell_argv(str(arguments["command"]))
         if dry_run:
             return {
                 "command": str(arguments["command"]),
@@ -495,6 +543,7 @@ class ProcessListTool:
         capability=Capability.PROCESS_READ,
         risk=RiskLevel.MEDIUM,
         timeout_seconds=60.0,
+        metadata=_tool_metadata(parallel_safe=True),
     )
 
     async def invoke(self, arguments: Mapping[str, Any], context: ToolContext) -> Any:
@@ -529,6 +578,8 @@ class ProcessKillTool:
         capability=Capability.PROCESS_CONTROL,
         risk=RiskLevel.HIGH,
         timeout_seconds=30.0,
+        output_kind=ToolOutputKind.COMMAND_OUTPUT,
+        metadata=_tool_metadata(mutates_state=True),
     )
 
     async def invoke(self, arguments: Mapping[str, Any], context: ToolContext) -> Any:
@@ -581,6 +632,8 @@ class PackageInstallTool:
         capability=Capability.NETWORK_ACCESS,
         risk=RiskLevel.HIGH,
         timeout_seconds=300.0,
+        output_kind=ToolOutputKind.COMMAND_OUTPUT,
+        metadata=_tool_metadata(mutates_state=True),
     )
 
     async def invoke(self, arguments: Mapping[str, Any], context: ToolContext) -> Any:
@@ -637,6 +690,8 @@ class GitStatusTool:
         capability=Capability.PROCESS_READ,
         risk=RiskLevel.MEDIUM,
         timeout_seconds=30.0,
+        output_kind=ToolOutputKind.COMMAND_OUTPUT,
+        metadata=_tool_metadata(parallel_safe=True),
     )
 
     async def invoke(self, arguments: Mapping[str, Any], context: ToolContext) -> Any:
@@ -669,6 +724,8 @@ class GitDiffTool:
         capability=Capability.PROCESS_READ,
         risk=RiskLevel.MEDIUM,
         timeout_seconds=60.0,
+        output_kind=ToolOutputKind.COMMAND_OUTPUT,
+        metadata=_tool_metadata(parallel_safe=True),
     )
 
     async def invoke(self, arguments: Mapping[str, Any], context: ToolContext) -> Any:
@@ -686,9 +743,7 @@ class GitDiffTool:
             raise RuntimeError(completed.stderr.strip() or completed.stdout.strip() or "git diff failed")
         max_chars = int(arguments.get("max_chars", 50000))
         diff_text, line_truncated = _sanitize_command_output(completed.stdout)
-        char_truncated = len(diff_text) > max_chars
-        if char_truncated:
-            diff_text = diff_text[:max_chars] + "...[truncated]"
+        diff_text, char_truncated = _truncate_text_chars(diff_text, max_chars=max_chars)
         return {
             "cwd": str(repo_path),
             "diff": diff_text,
@@ -712,6 +767,7 @@ class WorkspaceListTool:
         },
         capability=Capability.FILE_READ,
         risk=RiskLevel.LOW,
+        metadata=_tool_metadata(parallel_safe=True),
     )
 
     async def invoke(self, arguments: Mapping[str, Any], context: ToolContext) -> Any:
@@ -763,6 +819,8 @@ class WorkspaceReadTool:
         },
         capability=Capability.FILE_READ,
         risk=RiskLevel.LOW,
+        output_kind=ToolOutputKind.FILE_CONTENT,
+        metadata=_tool_metadata(parallel_safe=True),
     )
 
     async def invoke(self, arguments: Mapping[str, Any], context: ToolContext) -> Any:
@@ -789,6 +847,7 @@ class WorkspaceSearchTool:
         },
         capability=Capability.FILE_READ,
         risk=RiskLevel.LOW,
+        metadata=_tool_metadata(parallel_safe=True),
     )
 
     async def invoke(self, arguments: Mapping[str, Any], context: ToolContext) -> Any:
@@ -844,6 +903,7 @@ class WorkspaceGrepTool:
         },
         capability=Capability.FILE_READ,
         risk=RiskLevel.LOW,
+        metadata=_tool_metadata(parallel_safe=True),
     )
 
     async def invoke(self, arguments: Mapping[str, Any], context: ToolContext) -> Any:
@@ -876,6 +936,7 @@ class WorkspaceWriteTool:
         },
         capability=Capability.FILE_WRITE,
         risk=RiskLevel.MEDIUM,
+        metadata=_tool_metadata(mutates_state=True),
     )
 
     async def invoke(self, arguments: Mapping[str, Any], context: ToolContext) -> Any:
@@ -913,6 +974,7 @@ class WorkspaceEditTool:
         },
         capability=Capability.FILE_WRITE,
         risk=RiskLevel.MEDIUM,
+        metadata=_tool_metadata(mutates_state=True),
     )
 
     async def invoke(self, arguments: Mapping[str, Any], context: ToolContext) -> Any:
@@ -943,6 +1005,7 @@ class WorkspaceOpsTool:
         },
         capability=Capability.FILE_WRITE,
         risk=RiskLevel.MEDIUM,
+        metadata=_tool_metadata(mutates_state=True),
     )
 
     async def invoke(self, arguments: Mapping[str, Any], context: ToolContext) -> Any:
@@ -1009,6 +1072,8 @@ class ShellRunTool:
         capability=Capability.SHELL_EXECUTE,
         risk=RiskLevel.HIGH,
         timeout_seconds=120.0,
+        output_kind=ToolOutputKind.COMMAND_OUTPUT,
+        metadata=_tool_metadata(mutates_state=True),
     )
 
     async def invoke(self, arguments: Mapping[str, Any], context: ToolContext) -> Any:
@@ -1045,6 +1110,8 @@ class ShellSessionTool:
         capability=Capability.SHELL_EXECUTE,
         risk=RiskLevel.HIGH,
         timeout_seconds=30.0,
+        output_kind=ToolOutputKind.COMMAND_OUTPUT,
+        metadata=_tool_metadata(mutates_state=True),
     )
 
     async def invoke(self, arguments: Mapping[str, Any], context: ToolContext) -> Any:
@@ -1132,11 +1199,7 @@ class ShellSessionTool:
                 "session_id": session_id,
                 "command": command,
                 "cwd": str(cwd),
-                "argv": (
-                    [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/s", "/c", command]
-                    if os.name == "nt"
-                    else ["/bin/sh", "-lc", command]
-                ),
+                "argv": build_shell_argv(command),
                 "risk_level": str(arguments.get("risk_level", "high")),
                 "dry_run": True,
             }
@@ -1195,6 +1258,7 @@ class TodoUpdateTool:
         },
         capability=Capability.CORE_READ,
         risk=RiskLevel.LOW,
+        metadata=_tool_metadata(mutates_state=True),
     )
 
     async def invoke(self, arguments: Mapping[str, Any], context: ToolContext) -> Any:
@@ -1220,6 +1284,7 @@ class ApprovalRequestTool:
         },
         capability=Capability.CORE_READ,
         risk=RiskLevel.LOW,
+        metadata=_tool_metadata(mutates_state=False),
     )
 
     async def invoke(self, arguments: Mapping[str, Any], context: ToolContext) -> Any:
@@ -1292,6 +1357,20 @@ class ApprovalRequestTool:
             )
         )
         return payload
+
+
+class AskUserApprovalTool:
+    spec = ToolSpec(
+        name="ask_user_approval",
+        description="Alias for approval.request to request explicit user approval for a proposed action.",
+        input_schema=ApprovalRequestTool.spec.input_schema,
+        capability=Capability.CORE_READ,
+        risk=RiskLevel.LOW,
+        metadata=_tool_metadata(mutates_state=False),
+    )
+
+    async def invoke(self, arguments: Mapping[str, Any], context: ToolContext) -> Any:
+        return await ApprovalRequestTool().invoke(arguments, context)
 
 
 def _package_install_command(manager: str, packages: Sequence[str], *, dev: bool) -> list[str]:

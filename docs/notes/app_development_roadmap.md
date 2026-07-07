@@ -24,6 +24,7 @@ Ghi thu tu phat trien app theo dung uu tien hien tai:
 - giu conversation loop, tool loop, cancel/shutdown, va prompt injection on dinh;
 - giu config/route/prompt profile ro rang;
 - giu permission boundary va audit trail ro rang.
+- CLI chat that qua `localhost.chat` da verify duoc; phan con lai la hardening va lifecycle xung quanh desktop/package.
 
 ### Sub-roadmap
 
@@ -72,8 +73,8 @@ Ghi thu tu phat trien app theo dung uu tien hien tai:
 - OpenAI-compatible layer cho OpenAI/Google/OpenRouter/Ollama/LM Studio/llama.cpp/custom;
 - direct Claude path qua Anthropic Messages API;
 - provider health va runtime settings editor;
-- `LM Studio` la local path uu tien cao nhat trong giai doan nay;
-- mo rong editor `llama.cpp` de sau, khong phai blocker cho core.
+- Local host OpenAI-compatible server tai `127.0.0.1:8080` la local path uu tien cao nhat trong giai doan nay;
+- `LM Studio` la local path phu; editor `llama.cpp` rieng de sau, khong phai blocker cho core.
 
 ### Sub-roadmap
 
@@ -99,6 +100,7 @@ Ghi thu tu phat trien app theo dung uu tien hien tai:
 - desktop shell phai render duoc provider health va runtime settings;
 - packaged path va debug path phai dong bo;
 - UI phai doc dung snapshot/state tu core.
+- preview/headless desktop controller da chat that qua `localhost.chat`; viec con lai la Tauri packaged path, lifecycle server local, va UI chat that end-to-end.
 
 ### Sub-roadmap
 
@@ -123,6 +125,7 @@ Ghi thu tu phat trien app theo dung uu tien hien tai:
 - chat phai chay on dinh tren core + backend + UI;
 - kiem tra lai test, packaged path, va cleanup behavior;
 - chi khi phase nay on dinh moi chot huong 3D engine.
+- `providers-health`, CLI chat, va `desktop-demo --headless-smoke-test` da co proof that cho local host path `127.0.0.1:8080`.
 
 ### Sub-roadmap
 

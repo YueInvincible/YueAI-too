@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Protocol
 
 from .contracts import (
@@ -30,6 +30,49 @@ class DenyApprovalProvider:
         reason: str,
     ) -> bool:
         return False
+
+
+@dataclass(slots=True)
+class SessionPermissionGrant:
+    session_id: str
+    allow_all_cmd: bool = False
+    updated_by: str = "ui"
+
+    def to_dict(self) -> dict[str, str | bool]:
+        return {
+            "session_id": self.session_id,
+            "allow_all_cmd": self.allow_all_cmd,
+            "updated_by": self.updated_by,
+        }
+
+
+class PermissionGrantStore:
+    def __init__(self) -> None:
+        self._session_grants: dict[str, SessionPermissionGrant] = {}
+
+    def set_allow_all_cmd(
+        self,
+        session_id: str,
+        allowed: bool,
+        *,
+        updated_by: str = "ui",
+    ) -> SessionPermissionGrant:
+        grant = SessionPermissionGrant(
+            session_id=session_id,
+            allow_all_cmd=allowed,
+            updated_by=updated_by,
+        )
+        self._session_grants[session_id] = grant
+        return grant
+
+    def get(self, session_id: str | None) -> SessionPermissionGrant | None:
+        if not session_id:
+            return None
+        return self._session_grants.get(session_id)
+
+    def allows_shell_commands(self, session_id: str | None) -> bool:
+        grant = self.get(session_id)
+        return bool(grant and grant.allow_all_cmd)
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +130,14 @@ DEFAULT_PERMISSION_RULES: dict[str, list[PermissionRule]] = {
                     "core.echo",
                     "core.health",
                     "approval.request",
+                    "ask_user_approval",
+                    "workspace_list",
+                    "workspace_read",
+                    "workspace_search",
+                    "workspace_grep",
+                    "git_status",
+                    "git_diff",
+                    "todo_update",
                     "file.read",
                     "file.list",
                     "file.search",
@@ -111,6 +162,17 @@ DEFAULT_PERMISSION_RULES: dict[str, list[PermissionRule]] = {
                     "core.echo",
                     "core.health",
                     "approval.request",
+                    "ask_user_approval",
+                    "workspace_list",
+                    "workspace_read",
+                    "workspace_search",
+                    "workspace_grep",
+                    "workspace_write",
+                    "workspace_edit",
+                    "workspace_ops",
+                    "git_status",
+                    "git_diff",
+                    "todo_update",
                     "file.read",
                     "file.list",
                     "file.search",
@@ -140,6 +202,17 @@ DEFAULT_PERMISSION_RULES: dict[str, list[PermissionRule]] = {
                     "core.echo",
                     "core.health",
                     "approval.request",
+                    "ask_user_approval",
+                    "workspace_list",
+                    "workspace_read",
+                    "workspace_search",
+                    "workspace_grep",
+                    "workspace_write",
+                    "workspace_edit",
+                    "workspace_ops",
+                    "git_status",
+                    "git_diff",
+                    "todo_update",
                     "file.read",
                     "file.list",
                     "file.search",
@@ -169,7 +242,9 @@ DEFAULT_PERMISSION_RULES: dict[str, list[PermissionRule]] = {
                     "file.delete",
                     "shell.exec",
                     "shell.run",
+                    "shell_run",
                     "shell.session",
+                    "shell_session",
                     "process.kill",
                     "package.install",
                 }
@@ -184,7 +259,9 @@ DEFAULT_PERMISSION_RULES: dict[str, list[PermissionRule]] = {
                     "file.delete",
                     "shell.exec",
                     "shell.run",
+                    "shell_run",
                     "shell.session",
+                    "shell_session",
                     "process.kill",
                     "package.install",
                 }
@@ -197,6 +274,11 @@ DEFAULT_PERMISSION_RULES: dict[str, list[PermissionRule]] = {
 
 
 class PermissionEngine:
+    MODEL_SHELL_TOOL_NAMES = frozenset(
+        {"shell.exec", "shell.run", "shell_run", "shell.session", "shell_session"}
+    )
+    ALLOW_ALL_CMD_BLOCKED_ACTORS = frozenset({"model"})
+
     def __init__(
         self,
         profile: str,
@@ -204,6 +286,7 @@ class PermissionEngine:
         rules: list[PermissionRule] | None = None,
         approval_provider: ApprovalProvider | None = None,
         interactive_approval: bool = False,
+        grant_store: PermissionGrantStore | None = None,
     ) -> None:
         if profile not in PROFILE_CAPABILITIES:
             raise ValueError(f"Unknown permission profile: {profile}")
@@ -211,6 +294,7 @@ class PermissionEngine:
         self.rules = list(rules or [])
         self.approval_provider = approval_provider or DenyApprovalProvider()
         self.interactive_approval = interactive_approval
+        self.grant_store = grant_store or PermissionGrantStore()
 
     async def request_explicit_approval(
         self,
@@ -262,7 +346,43 @@ class PermissionEngine:
             "explicit-approval",
         )
 
+    def evaluate_allow_all_cmd_grant(
+        self,
+        *,
+        actor: str,
+        allowed: bool,
+    ) -> PermissionDecision:
+        normalized_actor = actor.strip() or "ui"
+        if self.profile == "observe":
+            return PermissionDecision(
+                PermissionOutcome.DENY,
+                "observe profile cannot change allow-all-cmd session grants",
+                "session-allow-all-cmd-profile",
+            )
+        if normalized_actor in self.ALLOW_ALL_CMD_BLOCKED_ACTORS:
+            return PermissionDecision(
+                PermissionOutcome.DENY,
+                "model actor cannot change allow-all-cmd session grants",
+                "session-allow-all-cmd-actor",
+            )
+        return PermissionDecision(
+            PermissionOutcome.ALLOW,
+            "Non-model actor may change allow-all-cmd session grants",
+            "session-allow-all-cmd-ui",
+        )
+
     async def evaluate(self, request: ToolRequest, spec: ToolSpec) -> PermissionDecision:
+        if (
+            request.actor == "model"
+            and request.tool_name in self.MODEL_SHELL_TOOL_NAMES
+            and spec.capability in PROFILE_CAPABILITIES[self.profile]
+            and self.grant_store.allows_shell_commands(request.session_id)
+        ):
+            return PermissionDecision(
+                PermissionOutcome.ALLOW,
+                "Session grant allow-all-cmd enabled for model shell tools",
+                "session-allow-all-cmd",
+            )
         for rule in [*self.rules, *DEFAULT_PERMISSION_RULES[self.profile]]:
             if rule.matches(request, spec):
                 return await self._resolve(rule.outcome, request, spec, rule.id)

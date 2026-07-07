@@ -2,12 +2,18 @@ import { CoreProtocolClient, createMessage } from "./protocol.js";
 import {
   applyApprovalResponse,
   applyApprovalStatus,
+  applyAllowAllCmdGrant,
+  applyAllowAllCmdStatus,
   appendMessage,
   applyAnthropicConfigStatus,
   applyAnthropicMessagesSettings,
   applyBridgeRuntime,
   applyConversationSettings,
+  applyInspectorSelection,
+  linkLatestUserMessageToRun,
   applyOpenAICompatibleSettings,
+  applyParallelInspectStatus,
+  applyParallelInspectResults,
   applyPendingApprovals,
   applyCoreEvent,
   applyDesktopSnapshot,
@@ -15,10 +21,21 @@ import {
   applyProviderConfigStatus,
   applyProviderHealth,
   applySettingsStatus,
+  buildRunCopyArtifacts,
+  applyToolActivitySnapshot,
+  applyToolActivityStatus,
+  applyToolsCatalog,
   defaultDesktopViewState,
+  expandInspectorRunGroup,
+  expandRunGroup,
+  findLatestToolActivityForRun,
+  groupRunInspectorItems,
   selectAnthropicConfig,
   selectProviderConfig,
   setConversationId,
+  summarizeRunGroup,
+  toggleInspectorRunGroupCollapsed,
+  toggleRunGroupCollapsed,
 } from "./state.js";
 import { createMockTransport } from "./mock.js";
 import {
@@ -36,6 +53,15 @@ const sessionLine = document.querySelector("#session-line");
 const bridgeLine = document.querySelector("#bridge-line");
 const providerLine = document.querySelector("#provider-line");
 const consolePanel = document.querySelector("#console-panel");
+const overviewSessionKicker = document.querySelector("#overview-session-kicker");
+const overviewRuntimeSummary = document.querySelector("#overview-runtime-summary");
+const overviewProviderSummary = document.querySelector("#overview-provider-summary");
+const overviewActivitySummary = document.querySelector("#overview-activity-summary");
+const overviewBridgePending = document.querySelector("#overview-bridge-pending");
+const overviewBridgeEvents = document.querySelector("#overview-bridge-events");
+const overviewMessageCount = document.querySelector("#overview-message-count");
+const overviewApprovalCount = document.querySelector("#overview-approval-count");
+const overviewBandBridgeNote = document.querySelector("#overview-band-bridge-note");
 const providerStatusList = document.querySelector("#provider-status-list");
 const settingsStatusLine = document.querySelector("#settings-status-line");
 const settingsForm = document.querySelector("#settings-form");
@@ -76,8 +102,18 @@ const anthropicTemperatureInput = document.querySelector("#anthropic-temperature
 const anthropicMaxTokensInput = document.querySelector("#anthropic-max-tokens-input");
 const anthropicPresetButtons = document.querySelectorAll("[data-anthropic-preset]");
 const providerOptions = document.querySelector("#provider-options");
-const approvalStatusLine = document.querySelector("#approval-status-line");
-const approvalList = document.querySelector("#approval-list");
+const runInspectorStatusLine = document.querySelector("#run-inspector-status-line");
+const runInspectorList = document.querySelector("#run-inspector-list");
+const allowAllCmdStatusLine = document.querySelector("#allow-all-cmd-status-line");
+const allowAllCmdToggle = document.querySelector("#allow-all-cmd-toggle");
+const parallelInspectStatusLine = document.querySelector("#parallel-inspect-status-line");
+const parallelInspectForm = document.querySelector("#parallel-inspect-form");
+const parallelInspectPathsInput = document.querySelector("#parallel-inspect-paths-input");
+const parallelInspectStartLineInput = document.querySelector("#parallel-inspect-start-line-input");
+const parallelInspectEndLineInput = document.querySelector("#parallel-inspect-end-line-input");
+const parallelInspectResults = document.querySelector("#parallel-inspect-results");
+const toolCatalogStatusLine = document.querySelector("#tool-catalog-status-line");
+const toolCatalogList = document.querySelector("#tool-catalog-list");
 const defaultProviderInput = document.querySelector("#default-provider-input");
 const chatProviderInput = document.querySelector("#chat-provider-input");
 const chatProfileInput = document.querySelector("#chat-profile-input");
@@ -161,12 +197,12 @@ const OPENAI_COMPAT_PRESETS = {
   custom: {
     backend: "custom",
     base_url: "http://127.0.0.1:8080/v1",
-    model: "replace-me",
+    model: "Qwen3-4B-Q5_K_M.gguf",
     api_key_env: "",
     timeout_seconds: 120,
     health_timeout_seconds: 5,
     temperature: 0.7,
-    max_tokens: 1024,
+    max_tokens: 2048,
     headers: {},
   },
 };
@@ -210,9 +246,30 @@ function render() {
   settingsStatusLine.textContent = state.settingsStatus;
   providerConfigStatusLine.textContent = state.providerConfigStatus;
   anthropicConfigStatusLine.textContent = state.anthropicConfigStatus;
-  approvalStatusLine.textContent = state.approvalStatus;
+  runInspectorStatusLine.textContent = describeRunInspectorStatus(state);
+  allowAllCmdStatusLine.textContent = state.allowAllCmdStatus;
+  parallelInspectStatusLine.textContent = state.parallelInspectStatus;
+  toolCatalogStatusLine.textContent = state.toolCatalogStatus;
+  allowAllCmdToggle.checked = Boolean(state.allowAllCmd);
   bridgeLine.title = state.bridgeLastError || state.bridgeNote;
   consolePanel.classList.toggle("hidden", !state.consoleOpen);
+
+  const providerCount = state.providerHealth.length;
+  const healthyCount = state.providerHealth.filter((item) => item.ok).length;
+  overviewSessionKicker.textContent = state.attachedSessionIds.join(", ") || "Disconnected";
+  overviewRuntimeSummary.textContent = state.bridgeProcessStarted
+    ? "Bridge live and listening"
+    : "Bridge idle";
+  overviewProviderSummary.textContent =
+    providerCount > 0
+      ? `${healthyCount} of ${providerCount} providers healthy`
+      : "No provider health loaded yet.";
+  overviewActivitySummary.textContent = state.toolActivityStatus;
+  overviewBridgePending.textContent = String(state.bridgePendingRequests || 0);
+  overviewBridgeEvents.textContent = String(state.bridgeQueuedEvents || 0);
+  overviewMessageCount.textContent = String(state.messages.length);
+  overviewApprovalCount.textContent = String(state.pendingApprovals.length);
+  overviewBandBridgeNote.textContent = state.bridgeLastError || state.bridgeNote;
 
   providerOptions.replaceChildren();
   for (const provider of state.availableProviders) {
@@ -318,39 +375,343 @@ function render() {
   anthropicMaxTokensInput.value = String(selectedAnthropicConfig?.max_tokens ?? "");
   renderHeaderRows(anthropicHeadersList, selectedAnthropicConfig?.headers || {});
 
-  approvalList.replaceChildren();
-  for (const item of state.pendingApprovals) {
-    const row = document.createElement("article");
-    row.className = "approval-row";
+  runInspectorList.replaceChildren();
+  const runInspectorItems = buildRunInspectorItems(state);
+  const runInspectorGroups = groupRunInspectorItems(runInspectorItems);
+  if (runInspectorGroups.length === 0) {
+    runInspectorList.append(renderRunInspectorEmptyState());
+  }
+  for (const group of runInspectorGroups) {
+    runInspectorList.append(renderRunInspectorGroup(group));
+  }
 
-    const title = document.createElement("div");
-    title.className = "approval-title";
-    title.textContent = item.tool_name || "approval";
+  toolCatalogList.replaceChildren();
+  for (const item of state.toolsCatalog) {
+    const row = document.createElement("article");
+    row.className = "tool-catalog-row";
+
+    const head = document.createElement("div");
+    head.className = "tool-catalog-head";
+
+    const name = document.createElement("div");
+    name.className = "tool-catalog-name";
+    name.textContent = item.name || "unknown tool";
+
+    const badges = document.createElement("div");
+    badges.className = "tool-catalog-badges";
+    badges.append(
+      createToolBadge(item.output_kind || item.metadata?.output_kind || "structured"),
+      createToolBadge(
+        item.metadata?.parallel_safe ? "parallel_safe" : "sequential_only",
+        item.metadata?.parallel_safe ? "safe" : "risky",
+      ),
+      createToolBadge(
+        item.metadata?.mutates_state ? "mutates_state" : "read_only",
+        item.metadata?.mutates_state ? "risky" : "safe",
+      ),
+    );
+
+    head.append(name, badges);
+
+    const description = document.createElement("div");
+    description.className = "tool-catalog-description";
+    description.textContent = item.description || "No description";
 
     const meta = document.createElement("div");
-    meta.className = "approval-meta";
+    meta.className = "tool-catalog-meta";
     meta.textContent = [
-      item.risk_level || "unknown risk",
-      item.actor || "unknown actor",
-      item.session_id || "no session",
+      item.capability || "no capability",
+      item.risk || "unknown risk",
+      item.plugin_id || "core",
     ].join(" | ");
 
-    const reason = document.createElement("div");
-    reason.className = "approval-reason";
-    reason.textContent = item.reason || "No reason provided";
+    const contract = document.createElement("div");
+    contract.className = "tool-catalog-contract";
+    contract.textContent = describeToolContract(item);
 
-    const args = document.createElement("pre");
-    args.className = "approval-arguments";
-    args.textContent = JSON.stringify(item.arguments || {}, null, 2);
+    row.append(head, description, meta, contract);
+    toolCatalogList.append(row);
+  }
 
-    const actions = document.createElement("div");
-    actions.className = "approval-actions";
+  parallelInspectResults.replaceChildren();
+  for (const item of state.parallelInspectResults) {
+    const row = document.createElement("article");
+    row.className = "parallel-inspect-row";
 
+    const head = document.createElement("div");
+    head.className = "parallel-inspect-head";
+
+    const path = document.createElement("div");
+    path.className = "parallel-inspect-path";
+    path.textContent = item.path || item.tool_name || "unknown path";
+
+    const badge = createToolBadge(
+      item.status || "unknown",
+      item.status === "succeeded" ? "safe" : "risky",
+    );
+    head.append(path, badge);
+
+    const meta = document.createElement("div");
+    meta.className = "parallel-inspect-meta";
+    meta.textContent = [
+      item.start_line && item.end_line
+        ? `lines ${item.start_line}-${item.end_line}`
+        : `lines ${item.start_line || "?"}-${item.end_line || "?"}`,
+      item.total_lines ? `${item.returned_lines || 0}/${item.total_lines} returned` : null,
+      item.truncated ? "truncated" : "full",
+    ]
+      .filter(Boolean)
+      .join(" | ");
+
+    const preview = document.createElement("pre");
+    preview.className = "parallel-inspect-preview";
+    preview.textContent = item.error || item.content || "No output";
+
+    row.append(head, meta, preview);
+    parallelInspectResults.append(row);
+  }
+
+  messageLog.replaceChildren();
+  for (const group of buildMessageGroups(state.messages)) {
+    const block = document.createElement("section");
+    block.className = `message-group ${group.kind === "run" ? "is-run-group" : "is-loose-group"}`;
+    if (group.kind === "run") {
+      block.dataset.runId = group.run_id || "";
+    }
+    if (group.kind === "run") {
+      const header = document.createElement("button");
+      header.className = "message-group-header";
+      header.type = "button";
+      const collapsed = isRunGroupCollapsed(state, group.run_id);
+      header.append(renderRunGroupHeader(group, collapsed));
+      header.addEventListener("click", () => {
+        state = toggleRunGroupCollapsed(state, group.run_id);
+        render();
+      });
+      block.append(header);
+      block.append(renderRunGroupSummary(group));
+    }
+    if (!isRunGroupCollapsed(state, group.run_id)) {
+      for (const item of group.messages) {
+        const row = renderMessageRow(item);
+        block.append(row);
+      }
+    }
+    messageLog.append(block);
+  }
+  messageLog.scrollTop = messageLog.scrollHeight;
+}
+
+function createJumpButton(label, message, selection) {
+  const button = document.createElement("button");
+  button.className = "ghost-button inline-button";
+  button.type = "button";
+  button.textContent = label;
+  button.disabled = !message;
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (!message) {
+      return;
+    }
+    focusInspectorSelection(
+      buildInspectorSelection(selection, message.id),
+      message.id,
+    );
+  });
+  return button;
+}
+
+function buildRunInspectorItems(state) {
+  const items = [];
+  const seenApprovalIds = new Set();
+  for (const toolItem of state.toolActivity) {
+    const approval = state.pendingApprovals.find(
+      (item) =>
+        (toolItem.approval_id && item.approval_id === toolItem.approval_id) ||
+        (toolItem.request_id && item.request_id === toolItem.request_id),
+    );
+    if (approval?.approval_id) {
+      seenApprovalIds.add(approval.approval_id);
+    }
+    items.push({
+      ...toolItem,
+      kind: "tool_activity",
+      approval_pending: Boolean(approval),
+      approval_record: approval || null,
+      reason: approval?.reason || toolItem.error || null,
+      risk_level: approval?.risk_level || null,
+      actor: approval?.actor || null,
+      session_id: approval?.session_id || null,
+    });
+  }
+  for (const approval of state.pendingApprovals) {
+    if (approval.approval_id && seenApprovalIds.has(approval.approval_id)) {
+      continue;
+    }
+    items.push({
+      run_id: null,
+      conversation_id: null,
+      tool_call_id: null,
+      request_id: approval.request_id || null,
+      tool_name: approval.tool_name || "approval",
+      arguments: approval.arguments || {},
+      status: "waiting_approval",
+      output: null,
+      error: approval.reason || null,
+      approval_id: approval.approval_id || null,
+      kind: "approval_only",
+      approval_pending: true,
+      approval_record: approval,
+      reason: approval.reason || null,
+      risk_level: approval.risk_level || null,
+      actor: approval.actor || null,
+      session_id: approval.session_id || null,
+    });
+  }
+  return items;
+}
+
+function renderRunInspectorGroup(group) {
+  const block = document.createElement("section");
+  block.className = "run-inspector-group";
+
+  if (group.kind === "run") {
+    const collapsed = isInspectorRunGroupCollapsed(state, group.run_id);
+    const header = document.createElement("button");
+    header.className = "run-inspector-group-header";
+    header.type = "button";
+    header.append(renderRunInspectorGroupHeader(group, collapsed));
+    header.addEventListener("click", () => {
+      state = toggleInspectorRunGroupCollapsed(state, group.run_id);
+      render();
+    });
+    block.append(header);
+  }
+
+  if (group.kind !== "run" || !isInspectorRunGroupCollapsed(state, group.run_id)) {
+    const list = document.createElement("div");
+    list.className = "run-inspector-group-list";
+    for (const item of group.items) {
+      list.append(renderRunInspectorItem(item));
+    }
+    block.append(list);
+  }
+  return block;
+}
+
+function renderRunInspectorGroupHeader(group, collapsed = false) {
+  const row = document.createElement("div");
+  row.className = "run-inspector-group-header-inner";
+
+  const title = document.createElement("div");
+  title.className = "run-inspector-group-title";
+  title.textContent = `${collapsed ? "[+]" : "[-]"} run ${group.run_id}`;
+
+  const toolCount = group.items.length;
+  const pendingCount = group.items.filter((item) => item.approval_pending).length;
+  const issueCount = group.items.filter((item) =>
+    ["failed", "denied", "denied_by_user", "denied_by_profile", "timed_out", "cancelled"].includes(item.status),
+  ).length;
+
+  const badges = document.createElement("div");
+  badges.className = "run-inspector-group-badges";
+  badges.append(
+    createToolBadge(`${toolCount} tool`, toolCount > 0 ? "neutral" : "safe"),
+    createToolBadge(
+      pendingCount > 0 ? `${pendingCount} pending` : "ready",
+      pendingCount > 0 ? "neutral" : "safe",
+    ),
+    createToolBadge(
+      issueCount > 0 ? `${issueCount} issue` : "clean",
+      issueCount > 0 ? "risky" : "safe",
+    ),
+  );
+
+  const actions = document.createElement("div");
+  actions.className = "run-inspector-group-actions";
+
+  const openRunButton = document.createElement("button");
+  openRunButton.className = "ghost-button inline-button";
+  openRunButton.type = "button";
+  openRunButton.textContent = "Open run";
+  openRunButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    focusMessageRunGroup(group.run_id);
+  });
+
+  actions.append(openRunButton);
+  row.append(title, badges, actions);
+  return row;
+}
+
+function renderRunInspectorEmptyState() {
+  const row = document.createElement("div");
+  row.className = "run-inspector-empty";
+  row.textContent = "No tool activity or pending approval in this session.";
+  return row;
+}
+
+function renderRunInspectorItem(item) {
+  const row = document.createElement("article");
+  const linkedToolResult = findToolResultMessage(state, item);
+  const linkedAssistantTurn = findAssistantTurnMessage(state, item);
+  const selection = buildInspectorSelection(item, linkedToolResult?.id || linkedAssistantTurn?.id);
+  row.className = [
+    "tool-activity-row",
+    item.approval_pending ? "attention" : toolActivityToneClass(item.status),
+    selectionMatchesInspector(state.inspectorSelection, item) ? "is-selected" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const head = document.createElement("div");
+  head.className = "tool-activity-head";
+
+  const name = document.createElement("div");
+  name.className = "tool-activity-name";
+  name.textContent = item.tool_name || "unknown tool";
+
+  const badge = createToolBadge(
+    humanizeToolStatus(item.status || "unknown"),
+    toolActivityTone(item.status),
+  );
+  head.append(name, badge);
+
+  const meta = document.createElement("div");
+  meta.className = "tool-activity-meta";
+  meta.textContent = [
+    item.run_id ? `run ${item.run_id}` : null,
+    item.tool_call_id ? `call ${item.tool_call_id}` : null,
+    item.request_id ? `request ${item.request_id}` : null,
+    item.approval_id ? `approval ${item.approval_id}` : null,
+    item.risk_level ? item.risk_level : null,
+    item.actor ? item.actor : null,
+    item.session_id ? item.session_id : null,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+
+  const reason = document.createElement("div");
+  reason.className = "approval-reason";
+  reason.textContent = item.reason || "";
+  reason.hidden = !item.reason;
+
+  const preview = document.createElement("pre");
+  preview.className = "tool-activity-preview";
+  preview.textContent =
+    item.error ||
+    (item.output ? JSON.stringify(item.output, null, 2) : JSON.stringify(item.arguments || {}, null, 2));
+
+  const actions = document.createElement("div");
+  actions.className = "inspector-actions";
+
+  if (item.approval_pending && item.approval_id) {
     const approveButton = document.createElement("button");
     approveButton.className = "send-button";
     approveButton.type = "button";
     approveButton.textContent = "Approve";
-    approveButton.addEventListener("click", async () => {
+    approveButton.addEventListener("click", async (event) => {
+      event.stopPropagation();
       await respondToApproval(item.approval_id, true);
     });
 
@@ -358,23 +719,421 @@ function render() {
     denyButton.className = "ghost-button";
     denyButton.type = "button";
     denyButton.textContent = "Deny";
-    denyButton.addEventListener("click", async () => {
+    denyButton.addEventListener("click", async (event) => {
+      event.stopPropagation();
       await respondToApproval(item.approval_id, false);
     });
-
     actions.append(approveButton, denyButton);
-    row.append(title, meta, reason, args, actions);
-    approvalList.append(row);
   }
 
-  messageLog.replaceChildren();
-  for (const item of state.messages) {
-    const row = document.createElement("article");
-    row.className = `message-row role-${item.role}`;
-    row.textContent = `${item.role}: ${item.text}`;
-    messageLog.append(row);
+  actions.append(
+    createJumpButton("Assistant turn", linkedAssistantTurn, selection),
+    createJumpButton("Tool result", linkedToolResult, selection),
+  );
+
+  row.addEventListener("click", () => {
+    focusInspectorSelection(selection, linkedToolResult?.id || linkedAssistantTurn?.id);
+  });
+
+  row.append(head, meta, reason, preview, actions);
+  return row;
+}
+
+function describeRunInspectorStatus(state) {
+  const approvals = state.pendingApprovals.length;
+  const toolCount = state.toolActivity.length;
+  if (approvals > 0) {
+    return `${state.toolActivityStatus} | ${approvals} approval${approvals === 1 ? "" : "s"} pending`;
   }
-  messageLog.scrollTop = messageLog.scrollHeight;
+  if (toolCount > 0) {
+    return state.toolActivityStatus;
+  }
+  return state.approvalStatus || state.toolActivityStatus;
+}
+
+function buildInspectorSelection(source = {}, messageId = null) {
+  return {
+    run_id: source.run_id || null,
+    request_id: source.request_id || null,
+    tool_call_id: source.tool_call_id || null,
+    approval_id: source.approval_id || null,
+    message_id: messageId || null,
+  };
+}
+
+function selectionMatchesInspector(selection, item = {}) {
+  if (!selection) {
+    return false;
+  }
+  return Boolean(
+    (selection.message_id && item.id && selection.message_id === item.id) ||
+      (selection.request_id && item.request_id && selection.request_id === item.request_id) ||
+      (selection.tool_call_id &&
+        item.tool_call_id &&
+        selection.tool_call_id === item.tool_call_id) ||
+      (selection.approval_id && item.approval_id && selection.approval_id === item.approval_id) ||
+      (selection.run_id && item.run_id && selection.run_id === item.run_id),
+  );
+}
+
+function findToolResultMessage(state, refs = {}) {
+  return [...state.messages]
+    .reverse()
+    .find(
+      (message) =>
+        message.kind === "tool_result" &&
+        selectionMatchesInspector(buildInspectorSelection(refs), message),
+    );
+}
+
+function findAssistantTurnMessage(state, refs = {}) {
+  return [...state.messages]
+    .reverse()
+    .find(
+      (message) =>
+        message.role === "assistant" &&
+        selectionMatchesInspector(buildInspectorSelection(refs), message),
+    );
+}
+
+function buildMessageGroups(messages = []) {
+  const groups = [];
+  for (const message of messages) {
+    if (message.run_id) {
+      const existing = groups.find(
+        (group) => group.kind === "run" && group.run_id === message.run_id,
+      );
+      if (existing) {
+        existing.messages.push(message);
+      } else {
+        groups.push({ kind: "run", run_id: message.run_id, messages: [message] });
+      }
+      continue;
+    }
+    groups.push({
+      kind: "loose",
+      id: message.id || `loose-${groups.length}`,
+      messages: [message],
+    });
+  }
+  return groups;
+}
+
+function isRunGroupCollapsed(state, runId) {
+  return Boolean(runId && (state.collapsedRunIds || []).includes(runId));
+}
+
+function describeRunGroupHeader(group, collapsed) {
+  const summary = summarizeRunGroup(group);
+  return [
+    collapsed ? "[+]" : "[-]",
+    `run ${group.run_id}`,
+    `${summary.userCount} user`,
+    `${summary.assistantCount} assistant`,
+    `${summary.toolCount} tool`,
+    summary.errorCount > 0 ? `${summary.errorCount} issue` : "clean",
+  ].join(" | ");
+}
+
+function renderRunGroupHeader(group, collapsed) {
+  const summary = summarizeRunGroup(group);
+  const wrapper = document.createElement("div");
+  wrapper.className = "message-group-header-inner";
+
+  const title = document.createElement("div");
+  title.className = "message-group-title";
+  title.textContent = `${collapsed ? "[+]" : "[-]"} run ${group.run_id}`;
+
+  const badges = document.createElement("div");
+  badges.className = "message-group-badges";
+  badges.append(
+    createToolBadge(summary.outcome, runSummaryTone(summary.outcome)),
+    createToolBadge(`${summary.userCount} user`),
+    createToolBadge(`${summary.assistantCount} assistant`),
+    createToolBadge(`${summary.toolCount} tool`, summary.toolCount > 0 ? "neutral" : "safe"),
+    createToolBadge(
+      summary.errorCount > 0 ? `${summary.errorCount} issue` : "clean",
+      summary.errorCount > 0 ? "risky" : "safe",
+    ),
+  );
+  wrapper.append(title, badges);
+  return wrapper;
+}
+
+function renderRunGroupSummary(group) {
+  const { summary, summaryText, assistantText, toolText, jsonText } = buildRunCopyArtifacts(group);
+  const latestInspectorItem = findLatestToolActivityForRun(state.toolActivity, group.run_id);
+  const row = document.createElement("div");
+  row.className = "message-group-summary";
+
+  const assistantPreview = document.createElement("div");
+  assistantPreview.className = "message-group-summary-line";
+  assistantPreview.textContent = summary.assistantPreviewText;
+
+  const toolPreview = document.createElement("div");
+  toolPreview.className = "message-group-summary-line";
+  toolPreview.textContent = summary.toolPreviewText;
+
+  const actions = document.createElement("div");
+  actions.className = "message-group-summary-actions";
+
+  const copySummaryButton = document.createElement("button");
+  copySummaryButton.className = "ghost-button inline-button";
+  copySummaryButton.type = "button";
+  copySummaryButton.textContent = "Copy summary";
+  copySummaryButton.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    await copyRunPayload(summaryText, `Copied run ${group.run_id} summary`);
+  });
+
+  const focusInspectorButton = document.createElement("button");
+  focusInspectorButton.className = "ghost-button inline-button";
+  focusInspectorButton.type = "button";
+  focusInspectorButton.textContent = "Focus inspector";
+  focusInspectorButton.disabled = !latestInspectorItem;
+  focusInspectorButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    focusInspectorSelection(buildInspectorSelection(latestInspectorItem || { run_id: group.run_id }), null);
+  });
+
+  const copyAnswerButton = document.createElement("button");
+  copyAnswerButton.className = "ghost-button inline-button";
+  copyAnswerButton.type = "button";
+  copyAnswerButton.textContent = "Copy answer";
+  copyAnswerButton.disabled = !assistantText;
+  copyAnswerButton.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    await copyRunPayload(assistantText, `Copied run ${group.run_id} answer`);
+  });
+
+  const copyToolButton = document.createElement("button");
+  copyToolButton.className = "ghost-button inline-button";
+  copyToolButton.type = "button";
+  copyToolButton.textContent = "Copy tool result";
+  copyToolButton.disabled = !toolText;
+  copyToolButton.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    await copyRunPayload(toolText, `Copied run ${group.run_id} tool result`);
+  });
+
+  const copyJsonButton = document.createElement("button");
+  copyJsonButton.className = "ghost-button inline-button";
+  copyJsonButton.type = "button";
+  copyJsonButton.textContent = "Copy run JSON";
+  copyJsonButton.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    await copyRunPayload(jsonText, `Copied run ${group.run_id} JSON`);
+  });
+
+  actions.append(
+    copySummaryButton,
+    focusInspectorButton,
+    copyAnswerButton,
+    copyToolButton,
+    copyJsonButton,
+  );
+  row.append(assistantPreview, toolPreview, actions);
+  return row;
+}
+
+async function copyRunPayload(text, successStatus) {
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      fallbackCopyText(text);
+    }
+    state = applyToolActivityStatus(state, successStatus);
+  } catch (error) {
+    state = applyToolActivityStatus(
+      state,
+      `Copy failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  render();
+}
+
+function fallbackCopyText(text) {
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.setAttribute("readonly", "true");
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.append(area);
+  area.select();
+  document.execCommand("copy");
+  area.remove();
+}
+
+function runSummaryTone(outcome) {
+  switch (outcome) {
+    case "issues":
+      return "risky";
+    case "active":
+      return "neutral";
+    case "complete":
+      return "safe";
+    default:
+      return "neutral";
+  }
+}
+
+function describeRunGroupHeaderLegacy(group, collapsed) {
+  const userCount = group.messages.filter((item) => item.role === "user").length;
+  const assistantCount = group.messages.filter((item) => item.role === "assistant").length;
+  const toolCount = group.messages.filter((item) => item.role === "tool").length;
+  return [
+    collapsed ? "[+]" : "[-]",
+    `run ${group.run_id}`,
+    `${userCount} user`,
+    `${assistantCount} assistant`,
+    `${toolCount} tool`,
+  ].join(" | ");
+}
+
+function renderMessageRow(item) {
+  const row = document.createElement("article");
+  row.className = [
+    `message-row role-${item.role}`,
+    selectionMatchesInspector(state.inspectorSelection, item) ? "is-selected" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  row.dataset.messageId = item.id || "";
+
+  const head = document.createElement("div");
+  head.className = "message-head";
+
+  const title = document.createElement("div");
+  title.className = "message-role";
+  title.textContent = item.tool_name ? `${item.role}: ${item.tool_name}` : item.role;
+
+  const meta = document.createElement("div");
+  meta.className = "message-meta";
+  meta.textContent = [
+    item.run_id ? `run ${item.run_id}` : null,
+    item.tool_call_id ? `call ${item.tool_call_id}` : null,
+    item.request_id ? `request ${item.request_id}` : null,
+    item.status ? `status ${item.status}` : null,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+
+  head.append(title, meta);
+
+  const body = document.createElement("pre");
+  body.className = "message-body";
+  body.textContent = item.text || "";
+
+  row.append(head, body);
+  row.addEventListener("click", () => {
+    focusInspectorSelection(buildInspectorSelection(item, item.id), item.id, { renderOnly: true });
+  });
+  return row;
+}
+
+function focusInspectorSelection(selection, messageId = null, options = {}) {
+  if (selection?.run_id) {
+    state = expandRunGroup(state, selection.run_id);
+    state = expandInspectorRunGroup(state, selection.run_id);
+  }
+  state = applyInspectorSelection(state, selection);
+  render();
+  if (options.renderOnly || !messageId) {
+    return;
+  }
+  queueMicrotask(() => {
+    const target = messageId
+      ? messageLog.querySelector(`[data-message-id="${messageId}"]`)
+      : runInspectorList.querySelector(".tool-activity-row.is-selected");
+    target?.scrollIntoView({ block: "center", behavior: "smooth" });
+  });
+}
+
+function isInspectorRunGroupCollapsed(state, runId) {
+  return Boolean(runId && (state.collapsedInspectorRunIds || []).includes(runId));
+}
+
+function focusMessageRunGroup(runId) {
+  if (!runId) {
+    return;
+  }
+  const latestInspectorItem = findLatestToolActivityForRun(state.toolActivity, runId);
+  state = expandRunGroup(state, runId);
+  state = expandInspectorRunGroup(state, runId);
+  if (latestInspectorItem) {
+    state = applyInspectorSelection(state, buildInspectorSelection(latestInspectorItem));
+  }
+  render();
+  queueMicrotask(() => {
+    const target = messageLog.querySelector(`[data-run-id="${runId}"]`);
+    target?.scrollIntoView({ block: "center", behavior: "smooth" });
+  });
+}
+
+function createToolBadge(text, tone = "neutral") {
+  const badge = document.createElement("span");
+  badge.className = `tool-badge ${tone}`;
+  badge.textContent = text;
+  return badge;
+}
+
+function toolActivityTone(status) {
+  if (status === "succeeded" || status === "completed") {
+    return "safe";
+  }
+  if (
+    status === "requested" ||
+    status === "running" ||
+    status === "waiting_approval" ||
+    status === "approved_pending_run"
+  ) {
+    return "neutral";
+  }
+  return "risky";
+}
+
+function toolActivityToneClass(status) {
+  if (status === "waiting_approval" || status === "approved_pending_run") {
+    return "attention";
+  }
+  if (status === "denied_by_user" || status === "denied_by_profile" || status === "failed") {
+    return "blocked";
+  }
+  return "";
+}
+
+function humanizeToolStatus(status) {
+  switch (status) {
+    case "waiting_approval":
+      return "waiting approval";
+    case "approved_pending_run":
+      return "approved";
+    case "denied_by_user":
+      return "denied by user";
+    case "denied_by_profile":
+      return "blocked by profile";
+    default:
+      return status;
+  }
+}
+
+function describeToolContract(tool) {
+  const parts = [];
+  if (tool.metadata?.parallel_safe) {
+    parts.push("Safe to batch with other read-only parallel-safe tools.");
+  } else {
+    parts.push("Run sequentially.");
+  }
+  if (tool.metadata?.mutates_state) {
+    parts.push("Changes state or host environment.");
+  } else {
+    parts.push("Read-only from runtime perspective.");
+  }
+  if (tool.name === "shell.run" || tool.name === "shell.session" || tool.name === "shell.exec") {
+    parts.push("Model shell use in `assist` can be session-granted by `allow-all-cmd`; `observe` stays blocked.");
+  }
+  return parts.join(" ");
 }
 
 function renderHeaderRows(container, headers = {}) {
@@ -461,6 +1220,30 @@ function applyAnthropicPreset(preset) {
   renderHeaderRows(anthropicHeadersList, preset.headers || {});
 }
 
+function readParallelInspectCalls() {
+  const paths = parallelInspectPathsInput.value
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const startLineRaw = parallelInspectStartLineInput.value.trim();
+  const endLineRaw = parallelInspectEndLineInput.value.trim();
+  const startLine = startLineRaw ? Number(startLineRaw) : null;
+  const endLine = endLineRaw ? Number(endLineRaw) : null;
+  return paths.map((path) => {
+    const args = { path };
+    if (Number.isFinite(startLine) && startLine > 0) {
+      args.start_line = startLine;
+    }
+    if (Number.isFinite(endLine) && endLine > 0) {
+      args.end_line = endLine;
+    }
+    return {
+      name: "workspace.read",
+      arguments: args,
+    };
+  });
+}
+
 async function bootstrap() {
   const fallbackTransport = window.__YUE_TRANSPORT__ || createMockTransport();
   const tauriInvoke = await waitForTauriInvoke(window);
@@ -492,6 +1275,9 @@ async function bootstrap() {
   state = applyOpenAICompatibleSettings(state, await client.getOpenAICompatibleSettings());
   state = applyAnthropicMessagesSettings(state, await client.getAnthropicMessagesSettings());
   state = applyPendingApprovals(state, await client.listPendingApprovals());
+  state = applyToolActivitySnapshot(state, await client.getToolActivitySnapshot());
+  state = applyToolsCatalog(state, await client.listTools());
+  state = applyAllowAllCmdGrant(state, await client.getAllowAllCmd(sessionId));
   if (bridgeCommands) {
     pendingRuntimeInfo = await bridgeCommands.runtimeInfo();
     state = applyBridgeRuntime(state, pendingRuntimeInfo);
@@ -511,6 +1297,77 @@ async function bootstrap() {
   }
 }
 
+async function submitParallelInspect() {
+  const calls = readParallelInspectCalls();
+  if (calls.length === 0) {
+    state = applyParallelInspectStatus(state, "Add at least one workspace path");
+    render();
+    return;
+  }
+  state = applyParallelInspectStatus(
+    state,
+    `Running parallel inspect for ${calls.length} path${calls.length === 1 ? "" : "s"}...`,
+  );
+  render();
+  try {
+    const result = await client.invokeMany(calls, {
+      parallel: true,
+      actor: "desktop-ui",
+      sessionId,
+    });
+    const inspectResults = (result.results || []).map((item) => ({
+      tool_name: item.tool_name,
+      status: item.status,
+      path: item.output?.path || "",
+      content: item.output?.content || "",
+      start_line: item.output?.start_line || null,
+      end_line: item.output?.end_line || null,
+      total_lines: item.output?.total_lines || null,
+      returned_lines: item.output?.returned_lines || null,
+      truncated: Boolean(item.output?.truncated),
+      error: item.error || "",
+    }));
+    state = applyParallelInspectResults(state, inspectResults);
+    const sections = (result.results || []).map((item) => {
+      const output = item.output || {};
+      return `# ${output.path || item.tool_name}\n${output.content || JSON.stringify(output, null, 2)}`;
+    });
+    state = appendMessage(
+      state,
+      createMessage("assistant", sections.join("\n\n")),
+    );
+    state = applyParallelInspectStatus(
+      state,
+      `Parallel inspect completed for ${calls.length} path${calls.length === 1 ? "" : "s"}`,
+    );
+  } catch (error) {
+    state = applyParallelInspectStatus(
+      state,
+      `Parallel inspect failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  render();
+}
+
+async function updateAllowAllCmd(allowed) {
+  state = applyAllowAllCmdStatus(
+    state,
+    `${allowed ? "Enabling" : "Disabling"} session shell grant...`,
+  );
+  render();
+  try {
+    const grant = await client.setAllowAllCmd(sessionId, allowed, "desktop-ui");
+    state = applyAllowAllCmdGrant(state, grant);
+  } catch (error) {
+    allowAllCmdToggle.checked = !allowed;
+    state = applyAllowAllCmdStatus(
+      state,
+      `Shell grant update failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  render();
+}
+
 async function toggleConsole(command) {
   const payload = await client.desktopCommand(command, undefined, sessionId);
   state = applyDesktopSnapshot(state, payload.state);
@@ -522,16 +1379,24 @@ async function sendMessage(text) {
     const conversation = await client.createConversation();
     state = setConversationId(state, conversation.id);
   }
-  state = appendMessage(state, createMessage("user", text));
+  state = appendMessage(state, {
+    ...createMessage("user", text),
+    kind: "user_turn",
+    conversation_id: state.conversationId,
+  });
   render();
   await client.desktopCommand("presence.set", "thinking", sessionId);
   state = applyDesktopSnapshot(state, (await client.desktopState()));
   render();
   const response = await client.sendConversationMessage(state.conversationId, text);
+  state = linkLatestUserMessageToRun(state, response.run_id, state.conversationId);
   if (!usingNativeBridge) {
     state = appendMessage(state, {
       role: "assistant",
       text: response.message.text || response.message.content || "",
+      kind: "assistant_turn",
+      run_id: response.run_id || null,
+      conversation_id: state.conversationId,
     });
   }
   const after = await client.desktopCommand("presence.set", "idle", sessionId);
@@ -546,8 +1411,13 @@ async function respondToApproval(approvalId, approved) {
   );
   render();
   try {
-    await client.respondApproval(approvalId, approved);
+    state = applyToolActivityStatus(state, approved ? "Approving tool..." : "Denying tool...");
+    const response = await client.respondApproval(approvalId, approved);
     state = applyApprovalResponse(state, approvalId);
+    state = applyCoreEvent(state, {
+      topic: "approval.responded",
+      payload: response,
+    });
     state = applyApprovalStatus(
       state,
       approved ? "Approval granted" : "Approval denied",
@@ -682,7 +1552,7 @@ function createOpenAICompatibleProviderDraft() {
     provider_name: providerName,
     backend: "custom",
     base_url: "http://127.0.0.1:8080/v1",
-    model: "replace-me",
+      model: "Qwen3-4B-Q5_K_M.gguf",
     api_key_env: "",
     timeout_seconds: 120,
     health_timeout_seconds: 5,
@@ -999,6 +1869,15 @@ for (const button of anthropicPresetButtons) {
     applyAnthropicPreset(ANTHROPIC_PRESETS[button.dataset.anthropicPreset]);
   });
 }
+
+allowAllCmdToggle.addEventListener("change", async () => {
+  await updateAllowAllCmd(allowAllCmdToggle.checked);
+});
+
+parallelInspectForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await submitParallelInspect();
+});
 
 window.addEventListener("beforeunload", async () => {
   try {

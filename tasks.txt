@@ -1,0 +1,27 @@
+YueAI current checklist
+=======================
+
+Completed and verified
+----------------------
+- Single active-provider flow is wired through backend and desktop UI.
+- Local/OpenAI-compatible and Anthropic provider settings can be edited from the desktop shell.
+- Run inspector, tool activity reconnect snapshot, and grouped run summaries are in place.
+- Desktop chat surface has been redesigned into a chat-first shell with hidden Ops/Config drawers.
+- Ops drawer now contains provider health, tool contract, run inspector, shell grant, and parallel inspect.
+- Chat area is now fixed-frame; the temporary Focus chat expansion mode has been removed.
+- JS protocol tests pass.
+- Full Python test suite passes.
+
+Known next targets
+------------------
+- Re-verify packaged Tauri bootstrap path; latest note still says packaged diagnostics can stop at stage `scheduled`.
+- Reduce drift between `desktop/src/app.js` and `desktop/src/runtime.js`; runtime path is ahead and should remain the product source of truth until unified.
+- Add clearer local-runtime readiness and recovery UX for the localhost provider path.
+- Decide whether desktop should only detect localhost readiness or also manage local server lifecycle.
+- Add stronger end-to-end verification for native desktop interaction beyond protocol/unit coverage.
+
+Working rules
+-------------
+- Work directly on `main`.
+- Update docs and handoff after meaningful changes.
+- Prefer verified facts over aspirational roadmap text.

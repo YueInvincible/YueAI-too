@@ -5,23 +5,40 @@ import { CoreProtocolClient, createMessage } from "../src/protocol.js";
 import {
   applyApprovalResponse,
   applyApprovalStatus,
+  applyAllowAllCmdGrant,
+  applyAllowAllCmdStatus,
   appendMessage,
   applyAnthropicConfigStatus,
   applyAnthropicMessagesSettings,
   applyBridgeRuntime,
   applyConversationSettings,
+  applyInspectorSelection,
   applyCoreEvent,
   applyDesktopSnapshot,
   applyOpenAICompatibleSettings,
   applyPendingApprovals,
+  applyParallelInspectStatus,
+  applyParallelInspectResults,
   applyProviderConfigStatus,
   applyProviderHealth,
   applyProviderNames,
   applySettingsStatus,
+  buildRunCopyArtifacts,
+  applyToolActivitySnapshot,
+  applyToolActivityStatus,
+  applyToolCatalogStatus,
+  applyToolsCatalog,
   defaultDesktopViewState,
+  findLatestToolActivityForRun,
+  groupRunInspectorItems,
+  linkLatestUserMessageToRun,
+  expandRunGroup,
+  summarizeDesktopText,
+  summarizeRunGroup,
   selectAnthropicConfig,
   selectProviderConfig,
   setConversationId,
+  toggleRunGroupCollapsed,
 } from "../src/state.js";
 import { createMockTransport } from "../src/mock.js";
 import {
@@ -52,6 +69,15 @@ test("protocol client dispatches desktop methods through transport", async () =>
   await client.desktopCommand("console.toggle", undefined, "desktop-ui");
   await client.listPendingApprovals();
   await client.respondApproval("approval-1", true);
+  await client.getToolActivitySnapshot();
+  await client.listTools();
+  await client.listTools({ providerRole: "coding_agent" });
+  await client.invokeMany(
+    [{ name: "workspace.read", arguments: { path: "README.md" } }],
+    { parallel: true, actor: "desktop-ui", sessionId: "desktop-ui" },
+  );
+  await client.getAllowAllCmd("desktop-ui");
+  await client.setAllowAllCmd("desktop-ui", true);
   await client.desktopDetach("desktop-ui");
 
   assert.deepEqual(
@@ -61,11 +87,20 @@ test("protocol client dispatches desktop methods through transport", async () =>
       "desktop.command",
       "approval.pending.list",
       "approval.respond",
+      "tool.activity.snapshot",
+      "tools.list",
+      "tools.list",
+      "tools.invoke_many",
+      "permissions.allow_all_cmd.get",
+      "permissions.allow_all_cmd.set",
       "desktop.detach",
     ],
   );
   assert.equal(calls[1].params.command, "console.toggle");
   assert.equal(calls[3].params.approval_id, "approval-1");
+  assert.equal(calls[6].params.provider_role, "coding_agent");
+  assert.equal(calls[7].params.parallel, true);
+  assert.equal(calls[9].params.allowed, true);
 });
 
 test("mock transport supports the current desktop shell flow", async () => {
@@ -83,9 +118,9 @@ test("mock transport supports the current desktop shell flow", async () => {
   const reply = await client.sendConversationMessage(conversation.id, "hello");
   assert.equal(reply.message.text, "Echo: hello");
   const health = await client.providersHealth();
-  assert.equal(health[0].provider, "fake.echo");
+  assert.equal(health[0].provider, "localhost.chat");
   const settings = await client.getConversationSettings();
-  assert.equal(settings.routes.chat.provider, "fake.echo");
+  assert.equal(settings.routes.chat.provider, "localhost.chat");
   const updated = await client.updateConversationSettings({
     ...settings,
     prompt_profiles: {
@@ -109,19 +144,19 @@ test("mock transport supports the current desktop shell flow", async () => {
   });
   assert.equal(saved.prompt_profiles.coding_agent.system_instruction, "Persisted");
   const providerSettings = await client.getOpenAICompatibleSettings();
-  assert.equal(providerSettings.providers[0].provider_name, "ollama.chat");
+  assert.equal(providerSettings.providers[0].provider_name, "localhost.chat");
   const updatedProviderSettings = await client.updateOpenAICompatibleSettings({
     providers: [
       {
         ...providerSettings.providers[0],
-        model: "qwen2.5-coder",
+        model: "Qwen3-4B-Q5_K_M.gguf",
         headers: {
           Authorization: "Bearer test",
         },
       },
     ],
   });
-  assert.equal(updatedProviderSettings.providers[0].model, "qwen2.5-coder");
+  assert.equal(updatedProviderSettings.providers[0].model, "Qwen3-4B-Q5_K_M.gguf");
   assert.equal(updatedProviderSettings.providers[0].headers.Authorization, "Bearer test");
   const savedProviderSettings = await client.saveOpenAICompatibleSettings({
     providers: [
@@ -130,7 +165,7 @@ test("mock transport supports the current desktop shell flow", async () => {
         provider_name: "custom.provider.2",
         backend: "custom",
         base_url: "http://127.0.0.1:8080/v1",
-        model: "replace-me",
+        model: "Qwen3-4B-Q5_K_M.gguf",
         timeout_seconds: 120,
         health_timeout_seconds: 5,
         temperature: 0.7,
@@ -189,6 +224,19 @@ test("mock transport supports the current desktop shell flow", async () => {
   );
   assert.equal(approvalResponse.approved, true);
   assert.equal((await client.listPendingApprovals()).length, 0);
+  const tools = await client.listTools();
+  assert.equal(tools[0].metadata.parallel_safe, true);
+  const invoked = await client.invokeMany(
+    [{ name: "workspace.read", arguments: { path: "src/demo.js", start_line: 1, end_line: 5 } }],
+    { parallel: true, actor: "desktop-ui", sessionId: "desktop-preview" },
+  );
+  assert.equal(invoked.parallel, true);
+  assert.equal(invoked.results[0].output.path, "src/demo.js");
+  const initialGrant = await client.getAllowAllCmd("desktop-preview");
+  assert.equal(initialGrant.allow_all_cmd, false);
+  const updatedGrant = await client.setAllowAllCmd("desktop-preview", true);
+  assert.equal(updatedGrant.allow_all_cmd, true);
+  assert.equal((await client.getAllowAllCmd("desktop-preview")).allow_all_cmd, true);
 });
 
 test("desktop view-state helpers preserve immutable updates", () => {
@@ -204,13 +252,13 @@ test("desktop view-state helpers preserve immutable updates", () => {
   });
   const withConversation = setConversationId(snapped, "conversation-1");
   const withMessages = appendMessage(withConversation, createMessage("assistant", "hello"));
-  const withHealth = applyProviderHealth(withMessages, [{ provider: "fake.echo", ok: true }]);
-  const withProviders = applyProviderNames(withHealth, ["fake.echo"]);
+  const withHealth = applyProviderHealth(withMessages, [{ provider: "localhost.chat", ok: true }]);
+  const withProviders = applyProviderNames(withHealth, ["localhost.chat"]);
   const withSettings = applyConversationSettings(withProviders, {
-    default_provider: "fake.echo",
+    default_provider: "localhost.chat",
     routes: {
-      chat: { provider: "fake.echo", prompt_profile: "default" },
-      coding_agent: { provider: "fake.echo", prompt_profile: "coding_agent" },
+      chat: { provider: "localhost.chat", prompt_profile: "default" },
+      coding_agent: { provider: "localhost.chat", prompt_profile: "coding_agent" },
     },
     prompt_profiles: {
       default: { personality: "Short" },
@@ -219,9 +267,9 @@ test("desktop view-state helpers preserve immutable updates", () => {
   });
   const withStatus = applySettingsStatus(withSettings, "Runtime settings applied");
   const withOpenAICompat = applyOpenAICompatibleSettings(withStatus, {
-    providers: [{ provider_name: "ollama.chat", model: "qwen2.5" }],
+    providers: [{ provider_name: "localhost.chat", model: "Qwen3-4B-Q5_K_M.gguf" }],
   });
-  const withSelectedProvider = selectProviderConfig(withOpenAICompat, "ollama.chat");
+  const withSelectedProvider = selectProviderConfig(withOpenAICompat, "localhost.chat");
   const withProviderStatus = applyProviderConfigStatus(
     withSelectedProvider,
     "Provider config applied",
@@ -250,17 +298,66 @@ test("desktop view-state helpers preserve immutable updates", () => {
   ]);
   const withResolvedApproval = applyApprovalResponse(withApprovals, "approval-1");
   const withApprovalStatus = applyApprovalStatus(withResolvedApproval, "Approval denied");
+  const withToolsCatalog = applyToolsCatalog(withApprovalStatus, [
+    {
+      name: "workspace.read",
+      output_kind: "file_content",
+      metadata: { parallel_safe: true, mutates_state: false },
+    },
+  ]);
+  const withToolStatus = applyToolCatalogStatus(withToolsCatalog, "Tool catalog synced");
+  const withGrant = applyAllowAllCmdGrant(withToolStatus, {
+    allow_all_cmd: true,
+    updated_by: "desktop-ui",
+  });
+  const withGrantStatus = applyAllowAllCmdStatus(withGrant, "Grant syncing");
+  const withParallelInspect = applyParallelInspectStatus(
+    withGrantStatus,
+    "Parallel inspect completed",
+  );
+  const withParallelResults = applyParallelInspectResults(withParallelInspect, [
+    {
+      path: "PROJECT_HANDOFF.md",
+      status: "succeeded",
+      content: "mock",
+    },
+  ]);
+  const withToolActivityStatus = applyToolActivityStatus(
+    withParallelResults,
+    "Running workspace.read",
+  );
+  const withToolActivitySnapshot = applyToolActivitySnapshot(withToolActivityStatus, {
+    items: [
+      {
+        request_id: "request-1",
+        tool_name: "workspace.read",
+        status: "waiting_approval",
+      },
+    ],
+    status: "Approval requested for workspace.read",
+  });
+  const withInspectorSelection = applyInspectorSelection(withToolActivitySnapshot, {
+    request_id: "request-1",
+    message_id: "tool-result-call-1",
+  });
+  const withLinkedRun = linkLatestUserMessageToRun(
+    appendMessage(withInspectorSelection, { id: "user-1", role: "user", text: "hi" }),
+    "run-9",
+    "conversation-1",
+  );
+  const withCollapsedRun = toggleRunGroupCollapsed(withLinkedRun, "run-9");
+  const withExpandedRun = expandRunGroup(withCollapsedRun, "run-9");
 
   assert.equal(initial.consoleOpen, false);
   assert.equal(snapped.consoleOpen, true);
   assert.equal(withConversation.conversationId, "conversation-1");
   assert.equal(withMessages.messages.length, 1);
   assert.equal(withHealth.providerHealthSummary, "providers: 1/1 healthy");
-  assert.equal(withProviders.availableProviders[0], "fake.echo");
-  assert.equal(withSettings.conversationSettings.default_provider, "fake.echo");
+  assert.equal(withProviders.availableProviders[0], "localhost.chat");
+  assert.equal(withSettings.conversationSettings.default_provider, "localhost.chat");
   assert.equal(withStatus.settingsStatus, "Runtime settings applied");
-  assert.equal(withOpenAICompat.openaiCompatibleSettings.providers[0].model, "qwen2.5");
-  assert.equal(withSelectedProvider.selectedProviderConfigName, "ollama.chat");
+  assert.equal(withOpenAICompat.openaiCompatibleSettings.providers[0].model, "Qwen3-4B-Q5_K_M.gguf");
+  assert.equal(withSelectedProvider.selectedProviderConfigName, "localhost.chat");
   assert.equal(withProviderStatus.providerConfigStatus, "Provider config applied");
   assert.equal(withAnthropicSettings.anthropicMessagesSettings.providers[0].model, "claude-sonnet-4-20250514");
   assert.equal(withSelectedAnthropic.selectedAnthropicConfigName, "claude.coder");
@@ -269,6 +366,25 @@ test("desktop view-state helpers preserve immutable updates", () => {
   assert.equal(withApprovals.approvalStatus, "1 approval pending");
   assert.equal(withResolvedApproval.pendingApprovals.length, 0);
   assert.equal(withApprovalStatus.approvalStatus, "Approval denied");
+  assert.equal(withToolsCatalog.toolsCatalog.length, 1);
+  assert.equal(withToolStatus.toolCatalogStatus, "Tool catalog synced");
+  assert.equal(withGrant.allowAllCmd, true);
+  assert.equal(withGrant.allowAllCmdUpdatedBy, "desktop-ui");
+  assert.equal(withGrantStatus.allowAllCmdStatus, "Grant syncing");
+  assert.equal(withParallelInspect.parallelInspectStatus, "Parallel inspect completed");
+  assert.equal(withParallelResults.parallelInspectResults.length, 1);
+  assert.equal(withParallelResults.parallelInspectResults[0].path, "PROJECT_HANDOFF.md");
+  assert.equal(withToolActivityStatus.toolActivityStatus, "Running workspace.read");
+  assert.equal(withToolActivitySnapshot.toolActivity.length, 1);
+  assert.equal(withToolActivitySnapshot.toolActivity[0].request_id, "request-1");
+  assert.equal(
+    withToolActivitySnapshot.toolActivityStatus,
+    "Approval requested for workspace.read",
+  );
+  assert.equal(withInspectorSelection.inspectorSelection.request_id, "request-1");
+  assert.equal(withLinkedRun.messages.at(-1).run_id, "run-9");
+  assert.equal(withCollapsedRun.collapsedRunIds.includes("run-9"), true);
+  assert.equal(withExpandedRun.collapsedRunIds.includes("run-9"), false);
 });
 
 test("bridge runtime and event helpers apply native state transitions", () => {
@@ -298,11 +414,15 @@ test("bridge runtime and event helpers apply native state transitions", () => {
   });
   const withDelta = applyCoreEvent(withDesktopEvent, {
     topic: "conversation.delta",
-    payload: { text: "Echo: " },
+    payload: { text: "Echo: ", run_id: "run-0", conversation_id: "conversation-1" },
   });
   const completed = applyCoreEvent(withDelta, {
     topic: "conversation.run.completed",
-    payload: { message: { content: "Echo: hello" } },
+    payload: {
+      run_id: "run-0",
+      conversation_id: "conversation-1",
+      message: { content: "Echo: hello", metadata: { run_id: "run-0" } },
+    },
   });
   const withPendingApproval = applyCoreEvent(completed, {
     topic: "approval.pending",
@@ -320,15 +440,204 @@ test("bridge runtime and event helpers apply native state transitions", () => {
       approved: true,
     },
   });
+  const withGrantEvent = applyCoreEvent(resolved, {
+    topic: "permission.grant.updated",
+    payload: {
+      session_id: "desktop-ui",
+      allow_all_cmd: true,
+      updated_by: "desktop-ui",
+    },
+  });
+  const withToolRequested = applyCoreEvent(withGrantEvent, {
+    topic: "conversation.tool.requested",
+    payload: {
+      run_id: "run-1",
+      conversation_id: "conversation-1",
+      request_id: "request-1",
+      tool_call: {
+        id: "call-1",
+        name: "workspace.read",
+        arguments: { path: "README.md" },
+      },
+    },
+  });
+  const withToolStarted = applyCoreEvent(withToolRequested, {
+    topic: "tool.started",
+    payload: {
+      request_id: "request-1",
+      tool: "workspace.read",
+      tool_call_id: "call-1",
+      run_id: "run-1",
+    },
+  });
+  const withApprovalForTool = applyCoreEvent(withToolStarted, {
+    topic: "approval.pending",
+    payload: {
+      approval_id: "approval-2",
+      request_id: "request-1",
+      tool_name: "workspace.read",
+      reason: "Need approval",
+      arguments: { path: "README.md" },
+    },
+  });
+  const withApprovalResponseForTool = applyCoreEvent(withApprovalForTool, {
+    topic: "approval.responded",
+    payload: {
+      approval_id: "approval-2",
+      request_id: "request-1",
+      tool_name: "workspace.read",
+      approved: true,
+    },
+  });
+  const withToolFinished = applyCoreEvent(withApprovalForTool, {
+    topic: "tool.finished",
+    payload: {
+      request_id: "request-1",
+      tool_name: "workspace.read",
+      tool_call_id: "call-1",
+      status: "succeeded",
+      output: { path: "README.md", content: "ok" },
+    },
+  });
+  const withProfileDeniedTool = applyCoreEvent(withToolFinished, {
+    topic: "conversation.tool.requested",
+    payload: {
+      run_id: "run-2",
+      conversation_id: "conversation-1",
+      request_id: "request-2",
+      tool_call: {
+        id: "call-2",
+        name: "shell.run",
+        arguments: { command: "git push" },
+      },
+    },
+  });
+  const withProfileDeniedFinished = applyCoreEvent(withProfileDeniedTool, {
+    topic: "tool.finished",
+    payload: {
+      request_id: "request-2",
+      tool_name: "shell.run",
+      tool_call_id: "call-2",
+      status: "denied",
+      error: "Capability shell.execute is outside profile observe",
+    },
+  });
+  const withUserDeniedTool = applyCoreEvent(withProfileDeniedFinished, {
+    topic: "conversation.tool.requested",
+    payload: {
+      run_id: "run-3",
+      conversation_id: "conversation-1",
+      request_id: "request-3",
+      tool_call: {
+        id: "call-3",
+        name: "shell.run",
+        arguments: { command: "git push" },
+      },
+    },
+  });
+  const withUserDeniedPending = applyCoreEvent(withUserDeniedTool, {
+    topic: "approval.pending",
+    payload: {
+      approval_id: "approval-3",
+      request_id: "request-3",
+      tool_name: "shell.run",
+      reason: "Need approval",
+      arguments: { command: "git push" },
+    },
+  });
+  const withUserDeniedResponse = applyCoreEvent(withUserDeniedPending, {
+    topic: "approval.responded",
+    payload: {
+      approval_id: "approval-3",
+      request_id: "request-3",
+      tool_name: "shell.run",
+      approved: false,
+    },
+  });
 
   assert.equal(withRuntime.bridgeTransport, "spawned");
   assert.equal(withRuntime.bridgeProcessStarted, true);
   assert.equal(withDesktopEvent.consoleOpen, true);
   assert.equal(withDesktopEvent.presence, "thinking");
   assert.equal(completed.messages.at(-1).text, "Echo: hello");
+  assert.equal(completed.messages.at(-1).run_id, "run-0");
   assert.equal(completed.activeAssistantMessageId, null);
   assert.equal(withPendingApproval.pendingApprovals.length, 1);
   assert.equal(resolved.pendingApprovals.length, 0);
+  assert.equal(withGrantEvent.allowAllCmd, true);
+  assert.equal(withToolRequested.toolActivity.length, 1);
+  assert.equal(withToolStarted.toolActivity.find((item) => item.tool_call_id === "call-1").status, "running");
+  assert.equal(withApprovalForTool.toolActivity.find((item) => item.tool_call_id === "call-1").status, "waiting_approval");
+  assert.equal(withApprovalResponseForTool.toolActivity.find((item) => item.tool_call_id === "call-1").status, "approved_pending_run");
+  assert.equal(withToolFinished.toolActivity.find((item) => item.tool_call_id === "call-1").status, "succeeded");
+  assert.equal(withToolFinished.messages.at(-1).role, "tool");
+  assert.equal(withToolFinished.messages.at(-1).request_id, "request-1");
+  assert.equal(withProfileDeniedFinished.toolActivity.find((item) => item.tool_call_id === "call-2").status, "denied_by_profile");
+  assert.equal(withUserDeniedResponse.toolActivity.find((item) => item.tool_call_id === "call-3").status, "denied_by_user");
+});
+
+test("run summary helpers build copy-ready artifacts", () => {
+  const group = {
+    run_id: "run-42",
+    messages: [
+      { role: "user", text: "Inspect the repo", run_id: "run-42" },
+      {
+        role: "assistant",
+        text: "I inspected the repo and found the failing reconnect hydration path.",
+        run_id: "run-42",
+      },
+      {
+        role: "tool",
+        tool_name: "workspace.read",
+        status: "succeeded",
+        output: { path: "docs/notes/tool_activity_reconnect_issue.md", content: "ok" },
+        text: "",
+        run_id: "run-42",
+      },
+    ],
+  };
+
+  assert.equal(summarizeDesktopText("  a   b  ", 20), "a b");
+
+  const summary = summarizeRunGroup(group);
+  assert.equal(summary.outcome, "complete");
+  assert.equal(summary.assistantCount, 1);
+  assert.equal(summary.toolCount, 1);
+  assert.match(summary.assistantPreviewText, /^Assistant: I inspected the repo/);
+  assert.match(summary.toolPreviewText, /^Latest tool: workspace\.read \| succeeded \| \{/);
+  assert.match(summary.toolCopyText, /"path": "docs\/notes\/tool_activity_reconnect_issue\.md"/);
+
+  const artifacts = buildRunCopyArtifacts(group);
+  assert.match(artifacts.summaryText, /run run-42/);
+  assert.match(artifacts.summaryText, /outcome: complete/);
+  assert.equal(
+    artifacts.assistantText,
+    "I inspected the repo and found the failing reconnect hydration path.",
+  );
+  assert.match(artifacts.toolText, /"content": "ok"/);
+  assert.match(artifacts.jsonText, /"run_id": "run-42"/);
+  assert.match(artifacts.jsonText, /"outcome": "complete"/);
+
+  const latestTool = findLatestToolActivityForRun(
+    [
+      { run_id: "run-42", request_id: "request-2", tool_name: "workspace.read" },
+      { run_id: "run-41", request_id: "request-1", tool_name: "shell.run" },
+    ],
+    "run-42",
+  );
+  assert.equal(latestTool.request_id, "request-2");
+  assert.equal(findLatestToolActivityForRun([], "run-42"), null);
+
+  const inspectorGroups = groupRunInspectorItems([
+    { run_id: "run-42", request_id: "request-2", tool_name: "workspace.read" },
+    { run_id: "run-42", request_id: "request-3", tool_name: "shell.run" },
+    { approval_id: "approval-9", tool_name: "approval-only" },
+  ]);
+  assert.equal(inspectorGroups.length, 2);
+  assert.equal(inspectorGroups[0].kind, "run");
+  assert.equal(inspectorGroups[0].run_id, "run-42");
+  assert.equal(inspectorGroups[0].items.length, 2);
+  assert.equal(inspectorGroups[1].kind, "standalone");
 });
 
 test("tauri transport maps bridge responses into protocol results", async () => {
@@ -490,15 +799,60 @@ test("core session client preserves session id across desktop requests", async (
                   approval_id: request.params.approval_id,
                   approved: request.params.approved,
                 }
+              : request.method === "tool.activity.snapshot"
+                ? {
+                    items: [
+                      {
+                        request_id: "request-1",
+                        tool_name: "workspace.read",
+                        status: "waiting_approval",
+                      },
+                    ],
+                    status: "Approval requested for workspace.read",
+                  }
+              : request.method === "tools.list"
+                ? [
+                    {
+                      name: "workspace.read",
+                      output_kind: "file_content",
+                      metadata: { parallel_safe: true, mutates_state: false },
+                    },
+                  ]
+                : request.method === "tools.invoke_many"
+                  ? {
+                      parallel: request.params.parallel,
+                      results: [
+                        {
+                          tool_name: "workspace.read",
+                          status: "succeeded",
+                          output: {
+                            path: "README.md",
+                            content: "mock",
+                          },
+                        },
+                      ],
+                    }
+                  : request.method === "permissions.allow_all_cmd.get"
+                    ? {
+                        session_id: request.params.session_id,
+                        allow_all_cmd: false,
+                        updated_by: "none",
+                      }
+                    : request.method === "permissions.allow_all_cmd.set"
+                      ? {
+                          session_id: request.params.session_id,
+                          allow_all_cmd: request.params.allowed,
+                          updated_by: request.params.actor,
+                        }
             : request.method === "providers.health"
-            ? [{ provider: "fake.echo", ok: true }]
+            ? [{ provider: "localhost.chat", ok: true }]
             : request.method === "settings.conversation.get"
               ? {
-                  default_provider: "fake.echo",
+                  default_provider: "localhost.chat",
                   routes: {
-                    chat: { provider: "fake.echo", prompt_profile: "default" },
+                    chat: { provider: "localhost.chat", prompt_profile: "default" },
                     coding_agent: {
-                      provider: "fake.echo",
+                      provider: "localhost.chat",
                       prompt_profile: "coding_agent",
                     },
                   },
@@ -513,14 +867,14 @@ test("core session client preserves session id across desktop requests", async (
                 ? {
                     providers: [
                       {
-                        provider_name: "ollama.chat",
-                        backend: "ollama",
-                        base_url: "http://127.0.0.1:11434/v1",
-                        model: "qwen2.5",
+                        provider_name: "localhost.chat",
+                        backend: "llama.cpp",
+                        base_url: "http://127.0.0.1:8080/v1",
+                        model: "Qwen3-4B-Q5_K_M.gguf",
                         timeout_seconds: 120,
                         health_timeout_seconds: 5,
-                        temperature: 0.6,
-                        max_tokens: 1024,
+                        temperature: 0.7,
+                        max_tokens: 2048,
                       },
                     ],
                   }
@@ -553,13 +907,14 @@ test("core session client preserves session id across desktop requests", async (
   await session.desktopCommand("console.toggle");
   await session.listPendingApprovals();
   await session.respondApproval("approval-1", false);
+  await session.getToolActivitySnapshot();
   await session.providersHealth();
   await session.getConversationSettings();
   await session.updateConversationSettings({
-    default_provider: "fake.echo",
+    default_provider: "localhost.chat",
     routes: {
-      chat: { provider: "fake.echo", prompt_profile: "default" },
-      coding_agent: { provider: "fake.echo", prompt_profile: "coding_agent" },
+      chat: { provider: "localhost.chat", prompt_profile: "default" },
+      coding_agent: { provider: "localhost.chat", prompt_profile: "coding_agent" },
     },
     prompt_profiles: {
       default: { personality: "Changed" },
@@ -570,13 +925,13 @@ test("core session client preserves session id across desktop requests", async (
   await session.updateOpenAICompatibleSettings({
     providers: [
       {
-        provider_name: "ollama.chat",
-        backend: "ollama",
-        base_url: "http://127.0.0.1:11434/v1",
-        model: "qwen2.5-coder",
+        provider_name: "localhost.chat",
+        backend: "llama.cpp",
+        base_url: "http://127.0.0.1:8080/v1",
+        model: "Qwen3-4B-Q5_K_M.gguf",
         timeout_seconds: 120,
         health_timeout_seconds: 5,
-        temperature: 0.4,
+        temperature: 0.7,
         max_tokens: 2048,
       },
     ],
@@ -597,18 +952,32 @@ test("core session client preserves session id across desktop requests", async (
       },
     ],
   });
+  await session.listTools();
+  await session.invokeMany(
+    [{ name: "workspace.read", arguments: { path: "README.md" } }],
+    { parallel: true },
+  );
+  await session.getAllowAllCmd();
+  await session.setAllowAllCmd(true);
 
   assert.equal(lines[0].params.session_id, "desktop-ui");
   assert.equal(lines[1].params.source, "desktop-ui");
   assert.equal(lines[2].method, "approval.pending.list");
   assert.equal(lines[3].method, "approval.respond");
-  assert.equal(lines[4].method, "providers.health");
-  assert.equal(lines[5].method, "settings.conversation.get");
-  assert.equal(lines[6].method, "settings.conversation.update");
-  assert.equal(lines[7].method, "settings.providers.openai_compat.get");
-  assert.equal(lines[8].method, "settings.providers.openai_compat.update");
-  assert.equal(lines[9].method, "settings.providers.anthropic_messages.get");
-  assert.equal(lines[10].method, "settings.providers.anthropic_messages.update");
+  assert.equal(lines[4].method, "tool.activity.snapshot");
+  assert.equal(lines[5].method, "providers.health");
+  assert.equal(lines[6].method, "settings.conversation.get");
+  assert.equal(lines[7].method, "settings.conversation.update");
+  assert.equal(lines[8].method, "settings.providers.openai_compat.get");
+  assert.equal(lines[9].method, "settings.providers.openai_compat.update");
+  assert.equal(lines[10].method, "settings.providers.anthropic_messages.get");
+  assert.equal(lines[11].method, "settings.providers.anthropic_messages.update");
+  assert.equal(lines[12].method, "tools.list");
+  assert.equal(lines[13].method, "tools.invoke_many");
+  assert.equal(lines[13].params.session_id, "desktop-ui");
+  assert.equal(lines[14].method, "permissions.allow_all_cmd.get");
+  assert.equal(lines[15].method, "permissions.allow_all_cmd.set");
+  assert.equal(lines[15].params.allowed, true);
 });
 
 test("core session client forwards events to subscribers", async () => {
