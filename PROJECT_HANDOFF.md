@@ -195,6 +195,10 @@ Chi giu 3 thu:
   - `Ops` gom run inspector, shell grant, parallel inspect, provider health, va tool contract;
   - khu vuc chat gio giu frame co dinh, khong con che do mo rong `Focus chat`;
   - dong message moi duoc canh theo stack tu day len de doc nhu giao dien chat thay vi console phang.
+- Active provider drawer gio da co them lop readiness ro hon:
+  - nut `Refresh runtime`;
+  - health strip hien `reachable/offline`, model duoc detect hay khong, va endpoint dang probe;
+  - hint text local path gio noi ro hon khi `127.0.0.1`/base URL khong reachable.
 - Desktop shell da co them conversation tool activity timeline:
   - UI hien tai gom approval + tool activity thanh `Run inspector` theo item/run thay vi 2 panel rieng.
   - render `conversation.tool.requested`, `tool.started`, `approval.pending`, `tool.finished`, `conversation.tool.completed`;

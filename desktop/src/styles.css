@@ -587,6 +587,26 @@ select:focus-visible {
   gap: 6px;
 }
 
+.provider-runtime-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.provider-runtime-health {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 40px;
+  padding: 10px 12px;
+  border: 1px solid rgba(140, 163, 192, 0.16);
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
+    linear-gradient(135deg, rgba(81, 210, 255, 0.04), transparent 68%);
+}
+
 .provider-unified-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
@@ -1056,6 +1076,12 @@ select.message-input {
   color: var(--danger);
 }
 
+.tool-badge.neutral {
+  border-color: rgba(81, 210, 255, 0.24);
+  background: rgba(81, 210, 255, 0.08);
+  color: var(--muted-2);
+}
+
 .message-group,
 .run-inspector-group {
   display: grid;
@@ -1469,6 +1495,10 @@ select.message-input {
     width: auto;
     max-height: calc(100dvh - 92px);
     border-radius: 24px;
+  }
+
+  .provider-runtime-strip {
+    grid-template-columns: 1fr;
   }
 }
 

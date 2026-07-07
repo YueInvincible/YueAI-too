@@ -100,6 +100,10 @@
   - `Ops` gom `Run inspector`, shell grant, parallel inspect, provider health, va tool contract;
   - khung chat da giu frame co dinh, da bo che do `Focus chat`;
   - tung drawer da co nut dong rieng.
+- Active provider area gio co them readiness UX cho local/runtime path:
+  - health strip hien reachability, selected model, va endpoint dang probe;
+  - nut `Refresh runtime` re-probe ngay tai cho thay vi chi refresh model list;
+  - local runtime hint text ro hon khi endpoint khong reachable.
 
 ## Packaged/non-dev path
 

@@ -89,6 +89,7 @@ Desktop shell UI
     - `Ops` va `Config` drawer;
     - provider health/tool contract da duoc dua vao `Ops`;
     - khung chat frame co dinh, khong con che do `Focus chat`.
+    - active provider co them runtime readiness strip + nut `Refresh runtime`.
   - bat buoc giu dong bo logic voi `app.js` hoac ghi ro cho note neu runtime path di truoc.
 
 - `desktop/src-tauri/src/bridge.rs`

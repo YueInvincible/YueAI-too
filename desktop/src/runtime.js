@@ -1573,6 +1573,8 @@
   const overviewBandBridgeNote = document.querySelector("#overview-band-bridge-note");
   const activeProviderStatusLine = document.querySelector("#active-provider-status-line");
   const activeProviderRuntimeLine = document.querySelector("#active-provider-runtime-line");
+  const activeProviderHealthStrip = document.querySelector("#active-provider-health-strip");
+  const activeProviderHealthRefreshButton = document.querySelector("#active-provider-health-refresh-button");
   const activeProviderForm = document.querySelector("#active-provider-form");
   const activeProviderSaveButton = document.querySelector("#active-provider-save-button");
   const activeProviderKindSelect = document.querySelector("#active-provider-kind-select");
@@ -1953,6 +1955,51 @@
       normalizedModels.includes(selectedModel) ? selectedModel : normalizedModels[0];
   }
 
+  function activeProviderCatalogBadges(catalog = null, draft = null) {
+    if (!catalog) {
+      return [{ text: "No runtime probe yet", tone: "neutral" }];
+    }
+    const badges = [];
+    badges.push({
+      text: catalog.ok ? "Runtime reachable" : "Runtime offline",
+      tone: catalog.ok ? "safe" : "risky",
+    });
+    if (draft?.kind === "anthropic") {
+      badges.push({
+        text: catalog.models?.length ? `${catalog.models.length} models listed` : "Catalog empty",
+        tone: catalog.models?.length ? "neutral" : "risky",
+      });
+    } else {
+      badges.push({
+        text: catalog.selected_model ? `Selected ${catalog.selected_model}` : "No model detected",
+        tone: catalog.selected_model ? "neutral" : "risky",
+      });
+    }
+    if (catalog.models?.length) {
+      badges.push({
+        text: `${catalog.models.length} models available`,
+        tone: "neutral",
+      });
+    }
+    if (draft?.kind !== "anthropic") {
+      badges.push({
+        text: catalog.host && catalog.port ? `${catalog.host}:${catalog.port}` : (catalog.base_url || "runtime endpoint"),
+        tone: "neutral",
+      });
+    }
+    return badges;
+  }
+
+  function renderActiveProviderHealthStrip(catalog = null, draft = null) {
+    if (!activeProviderHealthStrip) {
+      return;
+    }
+    activeProviderHealthStrip.replaceChildren();
+    for (const item of activeProviderCatalogBadges(catalog, draft)) {
+      activeProviderHealthStrip.append(createToolBadge(item.text, item.tone));
+    }
+  }
+
   function applyActiveProviderKindView(kind) {
     const normalized = String(kind || "").trim().toLowerCase();
     activeProviderLocalFields?.toggleAttribute("hidden", !isLocalProviderKind(normalized));
@@ -2115,10 +2162,17 @@
     const activeProviderDraft = state.activeProviderDraft || null;
     const activeProviderCatalog = state.activeProviderCatalog || null;
     if (activeProviderRuntimeLine) {
-      activeProviderRuntimeLine.textContent = activeProviderSnapshot
-        ? `${activeProviderSnapshot.label} | ${activeProviderSnapshot.provider_name} | ${activeProviderSnapshot.model}`
-        : "Single-provider mode keeps one model active at a time.";
+      if (activeProviderSnapshot) {
+        const runtimeTarget = isLocalProviderKind(activeProviderSnapshot.kind)
+          ? activeProviderSnapshot.base_url
+          : activeProviderSnapshot.provider_name;
+        activeProviderRuntimeLine.textContent =
+          `${activeProviderSnapshot.label} | ${runtimeTarget} | ${activeProviderSnapshot.model}`;
+      } else {
+        activeProviderRuntimeLine.textContent = "Single-provider mode keeps one model active at a time.";
+      }
     }
+    renderActiveProviderHealthStrip(activeProviderCatalog, activeProviderDraft);
     if (activeProviderKindSelect) {
       activeProviderKindSelect.replaceChildren();
       const options = state.activeProviderSettings?.provider_options || [];
@@ -2155,6 +2209,10 @@
       if (activeProviderModelHint) {
         if (activeProviderCatalog?.error) {
           activeProviderModelHint.textContent = activeProviderCatalog.error;
+        } else if (activeProviderCatalog && !activeProviderCatalog.ok) {
+          activeProviderModelHint.textContent = isLocalProviderKind(activeProviderDraft.kind)
+            ? `Runtime is not reachable at ${activeProviderDraft.base_url || `${activeProviderDraft.host || "127.0.0.1"}:${activeProviderDraft.port || ""}`}.`
+            : "Provider runtime probe failed. Check endpoint, key, and selected backend.";
         } else if (isLocalProviderKind(activeProviderDraft.kind)) {
           activeProviderModelHint.textContent = activeProviderDraft.model
             ? `Auto-detected from local runtime: ${activeProviderDraft.model}`
@@ -4086,6 +4144,16 @@
     render();
     await refreshActiveProviderCatalog({ draft: state.activeProviderDraft });
     state = applyActiveProviderStatus(state, "Model catalog refreshed");
+    render();
+  });
+
+  activeProviderHealthRefreshButton?.addEventListener("click", async () => {
+    syncActiveProviderDraftFromDom({ dirty: true });
+    state = applyActiveProviderStatus(state, "Refreshing runtime health...");
+    render();
+    await refreshActiveProviderCatalog({ draft: state.activeProviderDraft });
+    state = applyProviderHealth(state, await client.providersHealth());
+    state = applyActiveProviderStatus(state, "Runtime health refreshed");
     render();
   });
 
