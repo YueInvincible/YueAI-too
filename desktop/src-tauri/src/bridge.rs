@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -219,7 +219,7 @@ pub fn bridge_report_diagnostic(payload: Value) -> BridgeResponse {
     let serialized = match serde_json::to_string(&payload) {
         Ok(value) => value,
         Err(error) => {
-            return error_response(format!("failed to serialize diagnostic payload: {error}"))
+            return error_response(format!("failed to serialize diagnostic payload: {error}"));
         }
     };
 
@@ -613,12 +613,16 @@ mod tests {
 
         std::thread::sleep(Duration::from_millis(100));
         let events = process.drain_events();
-        assert!(events
-            .iter()
-            .any(|event| event["topic"] == "desktop.session.attached"));
-        assert!(events
-            .iter()
-            .any(|event| event["topic"] == "desktop.state.changed"));
+        assert!(
+            events
+                .iter()
+                .any(|event| event["topic"] == "desktop.session.attached")
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event["topic"] == "desktop.state.changed")
+        );
 
         process.shutdown().expect("bridge shutdown");
     }
@@ -665,18 +669,26 @@ mod tests {
 
         std::thread::sleep(Duration::from_millis(100));
         let events = process.drain_events();
-        assert!(events
-            .iter()
-            .any(|event| event["topic"] == "conversation.created"));
-        assert!(events
-            .iter()
-            .any(|event| event["topic"] == "conversation.run.started"));
-        assert!(events
-            .iter()
-            .any(|event| event["topic"] == "conversation.delta"));
-        assert!(events
-            .iter()
-            .any(|event| event["topic"] == "conversation.run.completed"));
+        assert!(
+            events
+                .iter()
+                .any(|event| event["topic"] == "conversation.created")
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event["topic"] == "conversation.run.started")
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event["topic"] == "conversation.delta")
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event["topic"] == "conversation.run.completed")
+        );
 
         process.shutdown().expect("bridge shutdown");
     }
@@ -756,9 +768,11 @@ mod tests {
             .iter()
             .filter(|event| event["topic"] == "conversation.run.completed")
             .count();
-        assert!(events
-            .iter()
-            .any(|event| event["topic"] == "desktop.session.attached"));
+        assert!(
+            events
+                .iter()
+                .any(|event| event["topic"] == "desktop.session.attached")
+        );
         assert!(completed_runs >= 2);
 
         process.shutdown().expect("bridge shutdown");

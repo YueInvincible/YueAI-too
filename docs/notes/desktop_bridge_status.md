@@ -110,6 +110,11 @@
   - methods `settings.providers.active.get/catalog/update`
   - view-state `activeDrawer`, `activeProviderSettings`, `activeProviderDraft`, `activeProviderCatalog`, `activeProviderStatus`
   - regression test cho case apply active provider xong van giu config moi va catalog dung theo provider vua chon
+- Diagnostic harness trong `desktop/src-tauri/src/main.rs` gio da retry packaged probe va ghi stage chi tiet hon:
+  - `probe_dispatching`
+  - `probe_dispatched`
+  - `probe_timeout`
+  - callback payload co them `locationHref`
 
 ## Packaged/non-dev path
 
@@ -157,6 +162,10 @@ Chua verify lai sau dot startup/config moi:
   - `node --check desktop/src/protocol.js`
   - `node --check desktop/src/state.js`
   - `node --test desktop/tests/protocol.test.js`
+- Re-check ngay 2026-07-07 cho desktop Tauri diagnostic harness:
+  - `cargo check --manifest-path desktop/src-tauri/Cargo.toml`
+  - `cargo test --manifest-path desktop/src-tauri/Cargo.toml`
+- Chua rebuild/re-run lai NSIS-installed app sau khi them richer diagnostic stages, nen `scheduled` van la fact lich su, chua phai ket qua cua harness moi.
 
 ## Dung doc note nay khi nao
 

@@ -105,6 +105,10 @@ Desktop shell UI
     - active provider co them runtime readiness strip + nut `Refresh runtime`.
   - bat buoc giu dong bo logic voi `app.js` hoac ghi ro cho note neu runtime path di truoc.
 
+- `desktop/src-tauri/src/main.rs`
+  - ngoai bridge wiring, file nay con giu diagnostic harness cho debug packaged bootstrap.
+  - harness gio retry probe callback nhieu lan va ghi stage chi tiet hon (`probe_dispatching`, `probe_dispatched`, `probe_timeout`) de phan biet packaged app dang ket o dau.
+
 - `desktop/src-tauri/src/bridge.rs`
   - bridge native spawn `python -m yue_core serve` cho desktop shell.
   - runtime startup gio uu tien config theo thu tu:

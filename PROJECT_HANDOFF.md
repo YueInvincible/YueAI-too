@@ -103,6 +103,11 @@ Chi giu 3 thu:
   - `config.local.toml`
   - `config.example.toml`
   - roi moi fallback default core settings.
+- Diagnostic harness cho packaged bootstrap da duoc tang muc chi tiet:
+  - co retry probe tu `main.rs`
+  - co them stage `probe_dispatching`, `probe_dispatched`, `probe_timeout`
+  - payload callback co them `locationHref`
+  - muc dich la phan biet ro packaged NSIS dang ket o callback eval, page load, hay runtime bootstrap
 - Core da co provider routing theo role (`chat`, `coding_agent`) va prompt-profile config (`personality`, `system_instruction`, `tool_instruction`, `response_instruction`).
 - Core da co plugin `openai.compat` de cau hinh:
   - OpenAI;
@@ -247,6 +252,10 @@ Chi giu 3 thu:
     - `node --check desktop/src/protocol.js`
     - `node --check desktop/src/state.js`
     - `node --test desktop/tests/protocol.test.js`
+  - re-check ngay 2026-07-07 cho desktop Tauri diagnostic harness:
+    - `cargo check --manifest-path desktop/src-tauri/Cargo.toml`
+    - `cargo test --manifest-path desktop/src-tauri/Cargo.toml`
+  - chua rebuild/re-run lai NSIS-installed app sau khi them richer diagnostic stages; packaged path van chua duoc coi la xanh.
   - `desktop/index.html` hien dang nap `desktop/src/runtime.js` truc tiep; `desktop/src/app.js` khong phai live entrypoint cua shell packaged/dev preview hien tai, nen moi thay doi runtime shell phai uu tien doi chieu voi `runtime.js`.
   - lan re-check packaged NSIS sau dot startup/config moi nhat moi chi tra diagnostic `{"stage":"scheduled"}`, chua quay lai `runtime_bootstrap`; khong duoc coi packaged path la da xanh.
 - Mot so noi dung tu handoff cu da duoc tach sang note rieng. Cho nao chua du bang chung hoac moi la dinh huong thi phai danh dau ro trong note tuong ung, khong duoc tu coi la done.

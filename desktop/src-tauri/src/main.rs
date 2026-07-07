@@ -2,7 +2,16 @@
 
 mod bridge;
 
-use std::{env, fs, path::PathBuf, thread, time::Duration};
+use std::{
+    env, fs,
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
+    time::Duration,
+};
 
 use tauri::Manager;
 
@@ -100,6 +109,7 @@ struct DiagnosticConfig {
     output_path: Option<PathBuf>,
     sample_delay_ms: u64,
     auto_exit_ms: Option<u64>,
+    probe_retries: u32,
 }
 
 impl DiagnosticConfig {
@@ -113,12 +123,18 @@ impl DiagnosticConfig {
         let auto_exit_ms = env::var("YUE_DESKTOP_AUTO_EXIT_MS")
             .ok()
             .and_then(|value| value.parse::<u64>().ok());
+        let probe_retries = env::var("YUE_DESKTOP_DIAGNOSTIC_RETRIES")
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(3);
 
         Self {
             emit_stdout,
             output_path,
             sample_delay_ms,
             auto_exit_ms,
+            probe_retries,
         }
     }
 
@@ -182,7 +198,7 @@ fn configure_builder<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Bu
                         if let Some(path) = diagnostic_path.as_ref() {
                             write_diagnostic_stage(path, "scheduled", None);
                         }
-                        thread::sleep(Duration::from_millis(diagnostic.sample_delay_ms));
+                        let callback_seen = Arc::new(AtomicBool::new(false));
                         let script = r#"
                             (() => JSON.stringify({
                               readyState: document.readyState,
@@ -190,26 +206,67 @@ fn configure_builder<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Bu
                               hasInternals: typeof window.__TAURI_INTERNALS__ !== 'undefined',
                               hasInvoke: typeof window.__TAURI_INTERNALS__?.invoke === 'function',
                               hasIpc: typeof window.__TAURI_INTERNALS__?.ipc === 'function',
+                              locationHref: window.location.href,
                               bridgeLine: document.querySelector('#bridge-line')?.textContent ?? null
                             }))()
                         "#;
-                        if let Err(error) = window.eval_with_callback(script, move |payload| {
-                            if diagnostic.emit_stdout {
-                                println!("YUE_DESKTOP_DIAGNOSTIC={payload}");
+                        for attempt in 1..=diagnostic.probe_retries {
+                            thread::sleep(Duration::from_millis(diagnostic.sample_delay_ms));
+                            if callback_seen.load(Ordering::SeqCst) {
+                                break;
                             }
-                            if let Some(path) = diagnostic.output_path.as_ref() {
-                                write_diagnostic_output(path, &payload);
-                            }
-                            if let Some(delay_ms) = diagnostic.auto_exit_ms {
-                                let app_handle = app_handle.clone();
-                                thread::spawn(move || {
-                                    thread::sleep(Duration::from_millis(delay_ms));
-                                    app_handle.exit(0);
-                                });
-                            }
-                        }) {
                             if let Some(path) = diagnostic_path.as_ref() {
-                                write_diagnostic_stage(path, "eval_error", Some(&error.to_string()));
+                                let detail = format!(
+                                    "attempt {attempt}/{}",
+                                    diagnostic.probe_retries
+                                );
+                                write_diagnostic_stage(path, "probe_dispatching", Some(&detail));
+                            }
+                            let callback_seen_for_eval = callback_seen.clone();
+                            let callback_seen_for_callback = callback_seen.clone();
+                            let diagnostic_for_callback = diagnostic.clone();
+                            let app_handle_for_callback = app_handle.clone();
+                            if let Err(error) = window.eval_with_callback(script, move |payload| {
+                                callback_seen_for_callback.store(true, Ordering::SeqCst);
+                                if diagnostic_for_callback.emit_stdout {
+                                    println!("YUE_DESKTOP_DIAGNOSTIC={payload}");
+                                }
+                                if let Some(path) = diagnostic_for_callback.output_path.as_ref() {
+                                    write_diagnostic_output(path, &payload);
+                                }
+                                if let Some(delay_ms) = diagnostic_for_callback.auto_exit_ms {
+                                    let app_handle = app_handle_for_callback.clone();
+                                    thread::spawn(move || {
+                                        thread::sleep(Duration::from_millis(delay_ms));
+                                        app_handle.exit(0);
+                                    });
+                                }
+                            }) {
+                                if let Some(path) = diagnostic_path.as_ref() {
+                                    let detail = format!(
+                                        "attempt {attempt}/{}: {}",
+                                        diagnostic.probe_retries, error
+                                    );
+                                    write_diagnostic_stage(path, "eval_error", Some(&detail));
+                                }
+                                break;
+                            }
+                            if callback_seen_for_eval.load(Ordering::SeqCst) {
+                                break;
+                            }
+                            if let Some(path) = diagnostic_path.as_ref() {
+                                let detail =
+                                    format!("attempt {attempt}/{}", diagnostic.probe_retries);
+                                write_diagnostic_stage(path, "probe_dispatched", Some(&detail));
+                            }
+                        }
+                        if !callback_seen.load(Ordering::SeqCst) {
+                            if let Some(path) = diagnostic_path.as_ref() {
+                                let detail = format!(
+                                    "no callback after {} attempt(s)",
+                                    diagnostic.probe_retries
+                                );
+                                write_diagnostic_stage(path, "probe_timeout", Some(&detail));
                             }
                         }
                     });
@@ -238,15 +295,15 @@ fn main() {
 mod tests {
     use std::path::PathBuf;
 
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
     use tauri::{
         ipc::{CallbackFn, InvokeBody},
-        test::{get_ipc_response, mock_builder, mock_context, noop_assets, INVOKE_KEY},
+        test::{INVOKE_KEY, get_ipc_response, mock_builder, mock_context, noop_assets},
         webview::InvokeRequest,
     };
 
-    use super::configure_builder;
     use super::DiagnosticConfig;
+    use super::configure_builder;
 
     fn local_invoke_url() -> &'static str {
         if cfg!(windows) {
@@ -328,12 +385,16 @@ mod tests {
         )
         .expect("drain events after attach");
         let drained = events["events"].as_array().expect("events array");
-        assert!(drained
-            .iter()
-            .any(|event| event["topic"] == "desktop.session.attached"));
-        assert!(drained
-            .iter()
-            .any(|event| event["topic"] == "desktop.state.changed"));
+        assert!(
+            drained
+                .iter()
+                .any(|event| event["topic"] == "desktop.session.attached")
+        );
+        assert!(
+            drained
+                .iter()
+                .any(|event| event["topic"] == "desktop.state.changed")
+        );
 
         let conversation = invoke_json(
             &webview,
@@ -384,15 +445,21 @@ mod tests {
         let drained = conversation_events["events"]
             .as_array()
             .expect("conversation events array");
-        assert!(drained
-            .iter()
-            .any(|event| event["topic"] == "conversation.created"));
-        assert!(drained
-            .iter()
-            .any(|event| event["topic"] == "conversation.delta"));
-        assert!(drained
-            .iter()
-            .any(|event| event["topic"] == "conversation.run.completed"));
+        assert!(
+            drained
+                .iter()
+                .any(|event| event["topic"] == "conversation.created")
+        );
+        assert!(
+            drained
+                .iter()
+                .any(|event| event["topic"] == "conversation.delta")
+        );
+        assert!(
+            drained
+                .iter()
+                .any(|event| event["topic"] == "conversation.run.completed")
+        );
 
         let shutdown = invoke_json(
             &webview,
@@ -419,6 +486,7 @@ mod tests {
         assert!(!config.enabled());
         assert_eq!(config.sample_delay_ms, 0);
         assert_eq!(config.auto_exit_ms, None);
+        assert_eq!(config.probe_retries, 0);
     }
 
     #[test]
@@ -428,9 +496,11 @@ mod tests {
             output_path: Some(PathBuf::from("diagnostic.json")),
             sample_delay_ms: 2_000,
             auto_exit_ms: Some(250),
+            probe_retries: 4,
         };
         assert!(config.enabled());
         assert_eq!(config.sample_delay_ms, 2_000);
         assert_eq!(config.auto_exit_ms, Some(250));
+        assert_eq!(config.probe_retries, 4);
     }
 }
