@@ -104,6 +104,12 @@
   - health strip hien reachability, selected model, va endpoint dang probe;
   - nut `Refresh runtime` re-probe ngay tai cho thay vi chi refresh model list;
   - local runtime hint text ro hon khi endpoint khong reachable.
+- `desktop/index.html` hien dang load `runtime.js` truc tiep.
+- `app.js` hien phu hop hon cho test/doc va de theo doi logic module, nhung khong phai live entrypoint cua shell dang render.
+- `protocol.js` + `state.js` gio da duoc cap nhat de khop active-provider surface moi:
+  - methods `settings.providers.active.get/catalog/update`
+  - view-state `activeDrawer`, `activeProviderSettings`, `activeProviderDraft`, `activeProviderCatalog`, `activeProviderStatus`
+  - regression test cho case apply active provider xong van giu config moi va catalog dung theo provider vua chon
 
 ## Packaged/non-dev path
 
@@ -145,6 +151,10 @@ Chua verify lai sau dot startup/config moi:
 - Lan verify desktop gan nhat truoc dot UI moi nhat:
   - `node --check desktop/src/app.js`
   - `node --check desktop/src/runtime.js`
+  - `node --check desktop/src/state.js`
+  - `node --test desktop/tests/protocol.test.js`
+- Re-check ngay 2026-07-07 cho active-provider protocol/state:
+  - `node --check desktop/src/protocol.js`
   - `node --check desktop/src/state.js`
   - `node --test desktop/tests/protocol.test.js`
 

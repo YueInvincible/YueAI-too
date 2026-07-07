@@ -57,6 +57,13 @@ Desktop shell UI
 - `desktop/src/state.js`
   - source of truth cho desktop view-state shape.
   - neu UI can render them state moi, phai them vao day truoc.
+  - active-provider runtime state gio co them:
+    - `activeDrawer`
+    - `activeProviderSettings`
+    - `activeProviderDraft`
+    - `activeProviderDraftDirty`
+    - `activeProviderCatalog`
+    - `activeProviderStatus`
   - panel tool control hien dung state rieng cho:
     - session shell grant (`allowAllCmd*`);
     - parallel inspect status/results;
@@ -66,6 +73,11 @@ Desktop shell UI
 - `desktop/src/protocol.js`
   - source of truth cho API methods ma frontend duoc goi.
   - neu them method moi trong transport, frontend nen expose method tai day.
+  - active-provider surface gio da co:
+    - `getActiveProviderSettings()`
+    - `getActiveProviderCatalog(...)`
+    - `updateActiveProviderSettings(...)`
+    - `saveActiveProviderSettings(...)`
 
 - `desktop/src/mock.js`
   - source of truth cho preview/mock mode.
@@ -74,6 +86,7 @@ Desktop shell UI
 - `desktop/src/app.js`
   - module-based desktop bootstrap va render logic.
   - dung de doc nhanh logic hien tai.
+  - luu y: `index.html` hien khong nap file nay truc tiep; no chu yeu dung cho test/doc va de doi chieu logic module.
   - hien dang render:
     - `Run inspector` gom approval + conversation tool activity;
     - message log group theo `run_id`;

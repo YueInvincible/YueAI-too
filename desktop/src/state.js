@@ -20,8 +20,14 @@ export function defaultDesktopViewState() {
     providerHealth: [],
     providerHealthSummary: "providers: unavailable",
     availableProviders: [],
+    activeDrawer: null,
     conversationSettings: null,
     settingsStatus: "Runtime only",
+    activeProviderSettings: null,
+    activeProviderDraft: null,
+    activeProviderDraftDirty: false,
+    activeProviderCatalog: null,
+    activeProviderStatus: "Active provider runtime only",
     openaiCompatibleSettings: null,
     providerConfigStatus: "Provider config runtime only",
     selectedProviderConfigName: "",
@@ -138,10 +144,96 @@ export function applyConversationSettings(state, conversationSettings) {
   };
 }
 
+export function applyActiveDrawer(state, activeDrawer) {
+  return {
+    ...state,
+    activeDrawer: activeDrawer || null,
+  };
+}
+
 export function applySettingsStatus(state, settingsStatus) {
   return {
     ...state,
     settingsStatus: settingsStatus || state.settingsStatus,
+  };
+}
+
+export function applyActiveProviderSettings(state, activeProviderSettings) {
+  const nextDraft =
+    state.activeProviderDraftDirty && state.activeProviderDraft
+      ? JSON.parse(JSON.stringify(state.activeProviderDraft))
+      : createActiveProviderDraft(
+          activeProviderSettings?.active_provider || null,
+          activeProviderSettings?.provider_options || [],
+        );
+  return {
+    ...state,
+    activeProviderSettings: activeProviderSettings
+      ? JSON.parse(JSON.stringify(activeProviderSettings))
+      : null,
+    activeProviderDraft: nextDraft,
+  };
+}
+
+export function applyActiveProviderStatus(state, activeProviderStatus) {
+  return {
+    ...state,
+    activeProviderStatus: activeProviderStatus || state.activeProviderStatus,
+  };
+}
+
+export function applyActiveProviderDraft(state, activeProviderDraft, options = {}) {
+  return {
+    ...state,
+    activeProviderDraft: activeProviderDraft
+      ? JSON.parse(JSON.stringify(activeProviderDraft))
+      : null,
+    activeProviderDraftDirty:
+      options.dirty !== undefined ? Boolean(options.dirty) : state.activeProviderDraftDirty,
+  };
+}
+
+export function applyActiveProviderCatalog(state, activeProviderCatalog) {
+  return {
+    ...state,
+    activeProviderCatalog: activeProviderCatalog
+      ? JSON.parse(JSON.stringify(activeProviderCatalog))
+      : null,
+  };
+}
+
+export function createActiveProviderDraft(snapshot, providerOptions = []) {
+  if (snapshot) {
+    return {
+      kind: snapshot.kind || "llama.cpp",
+      provider_name: snapshot.provider_name || "",
+      model: snapshot.model || "",
+      api_key_env: snapshot.api_key_env || "",
+      host: snapshot.host || "",
+      port: snapshot.port || "",
+      base_url: snapshot.base_url || "",
+      anthropic_version: snapshot.anthropic_version || "2023-06-01",
+      timeout_seconds: snapshot.timeout_seconds ?? 120,
+      health_timeout_seconds: snapshot.health_timeout_seconds ?? 5,
+      temperature: snapshot.temperature ?? 0.7,
+      max_tokens: snapshot.max_tokens ?? 1024,
+    };
+  }
+  const fallback = providerOptions[0] || {};
+  const kind = fallback.kind || "llama.cpp";
+  return {
+    kind,
+    provider_name: fallback.default_provider_name || `${kind}.chat`,
+    model: "",
+    api_key_env: fallback.default_api_key_env || "",
+    host: fallback.default_host || "",
+    port: fallback.default_port || "",
+    base_url: "",
+    anthropic_version: "2023-06-01",
+    timeout_seconds: 120,
+    health_timeout_seconds: 5,
+    temperature: 0.7,
+    max_tokens: 1024,
   };
 }
 

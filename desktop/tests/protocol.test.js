@@ -10,6 +10,11 @@ import {
   appendMessage,
   applyAnthropicConfigStatus,
   applyAnthropicMessagesSettings,
+  applyActiveDrawer,
+  applyActiveProviderCatalog,
+  applyActiveProviderDraft,
+  applyActiveProviderSettings,
+  applyActiveProviderStatus,
   applyBridgeRuntime,
   applyConversationSettings,
   applyInspectorSelection,
@@ -28,6 +33,7 @@ import {
   applyToolActivityStatus,
   applyToolCatalogStatus,
   applyToolsCatalog,
+  createActiveProviderDraft,
   defaultDesktopViewState,
   findLatestToolActivityForRun,
   groupRunInspectorItems,
@@ -78,6 +84,10 @@ test("protocol client dispatches desktop methods through transport", async () =>
   );
   await client.getAllowAllCmd("desktop-ui");
   await client.setAllowAllCmd("desktop-ui", true);
+  await client.getActiveProviderSettings();
+  await client.getActiveProviderCatalog({ provider: { kind: "llama.cpp" } });
+  await client.updateActiveProviderSettings({ provider: { kind: "llama.cpp", provider_name: "localhost.chat", model: "Qwen3-4B-Q5_K_M.gguf" } });
+  await client.saveActiveProviderSettings({ provider: { kind: "llama.cpp", provider_name: "localhost.chat", model: "Qwen3-4B-Q5_K_M.gguf" } });
   await client.desktopDetach("desktop-ui");
 
   assert.deepEqual(
@@ -93,6 +103,10 @@ test("protocol client dispatches desktop methods through transport", async () =>
       "tools.invoke_many",
       "permissions.allow_all_cmd.get",
       "permissions.allow_all_cmd.set",
+      "settings.providers.active.get",
+      "settings.providers.active.catalog",
+      "settings.providers.active.update",
+      "settings.providers.active.update",
       "desktop.detach",
     ],
   );
@@ -239,6 +253,47 @@ test("mock transport supports the current desktop shell flow", async () => {
   assert.equal((await client.getAllowAllCmd("desktop-preview")).allow_all_cmd, true);
 });
 
+test("mock active provider updates persist the selected runtime config", async () => {
+  const client = new CoreProtocolClient(createMockTransport());
+
+  const initial = await client.getActiveProviderSettings();
+  assert.equal(initial.active_provider.provider_name, "localhost.chat");
+  assert.equal(initial.active_provider.model, "Qwen3-4B-Q5_K_M.gguf");
+
+  const applied = await client.updateActiveProviderSettings({
+    provider: {
+      kind: "openai",
+      provider_name: "openai.chat",
+      model: "gpt-4.1-mini",
+      api_key_env: "OPENAI_API_KEY",
+      timeout_seconds: 90,
+      health_timeout_seconds: 7,
+      temperature: 0.3,
+      max_tokens: 4096,
+    },
+  });
+  assert.equal(applied.active_provider.provider_name, "openai.chat");
+  assert.equal(applied.active_provider.base_url, "https://api.openai.com/v1");
+  assert.equal(applied.conversation.default_provider, "openai.chat");
+  assert.equal(applied.conversation.routes.chat.provider, "openai.chat");
+  assert.equal(applied.conversation.routes.coding_agent.provider, "openai.chat");
+
+  const reloaded = await client.getActiveProviderSettings();
+  assert.equal(reloaded.active_provider.provider_name, "openai.chat");
+  assert.equal(reloaded.active_provider.model, "gpt-4.1-mini");
+  assert.equal(reloaded.active_provider.timeout_seconds, 90);
+  assert.equal(reloaded.active_provider.temperature, 0.3);
+
+  const catalog = await client.getActiveProviderCatalog({
+    provider: reloaded.active_provider,
+  });
+  assert.equal(catalog.kind, "openai");
+  assert.equal(catalog.selected_model, "gpt-4.1-mini");
+  assert.equal(catalog.reachable, true);
+  assert.equal(catalog.ok, true);
+  assert.equal(catalog.models.includes("gpt-4.1-mini"), true);
+});
+
 test("desktop view-state helpers preserve immutable updates", () => {
   const initial = defaultDesktopViewState();
   const snapped = applyDesktopSnapshot(initial, {
@@ -266,6 +321,40 @@ test("desktop view-state helpers preserve immutable updates", () => {
     },
   });
   const withStatus = applySettingsStatus(withSettings, "Runtime settings applied");
+  const withDrawer = applyActiveDrawer(withStatus, "config");
+  const withActiveProviderSettings = applyActiveProviderSettings(withDrawer, {
+    active_provider: {
+      kind: "llama.cpp",
+      provider_name: "localhost.chat",
+      model: "Qwen3-4B-Q5_K_M.gguf",
+      host: "127.0.0.1",
+      port: 8080,
+      base_url: "http://127.0.0.1:8080/v1",
+      timeout_seconds: 120,
+      health_timeout_seconds: 5,
+      temperature: 0.7,
+      max_tokens: 2048,
+    },
+    provider_options: [{ kind: "llama.cpp", default_provider_name: "localhost.chat" }],
+  });
+  const withActiveProviderStatus = applyActiveProviderStatus(
+    withActiveProviderSettings,
+    "Active provider applied",
+  );
+  const withActiveProviderCatalog = applyActiveProviderCatalog(withActiveProviderStatus, {
+    models: ["Qwen3-4B-Q5_K_M.gguf"],
+    selected_model: "Qwen3-4B-Q5_K_M.gguf",
+    ok: true,
+    reachable: true,
+  });
+  const withActiveProviderDraft = applyActiveProviderDraft(
+    withActiveProviderCatalog,
+    createActiveProviderDraft(
+      withActiveProviderCatalog.activeProviderSettings.active_provider,
+      withActiveProviderCatalog.activeProviderSettings.provider_options,
+    ),
+    { dirty: true },
+  );
   const withOpenAICompat = applyOpenAICompatibleSettings(withStatus, {
     providers: [{ provider_name: "localhost.chat", model: "Qwen3-4B-Q5_K_M.gguf" }],
   });
@@ -356,6 +445,11 @@ test("desktop view-state helpers preserve immutable updates", () => {
   assert.equal(withProviders.availableProviders[0], "localhost.chat");
   assert.equal(withSettings.conversationSettings.default_provider, "localhost.chat");
   assert.equal(withStatus.settingsStatus, "Runtime settings applied");
+  assert.equal(withDrawer.activeDrawer, "config");
+  assert.equal(withActiveProviderSettings.activeProviderSettings.active_provider.provider_name, "localhost.chat");
+  assert.equal(withActiveProviderStatus.activeProviderStatus, "Active provider applied");
+  assert.equal(withActiveProviderCatalog.activeProviderCatalog.selected_model, "Qwen3-4B-Q5_K_M.gguf");
+  assert.equal(withActiveProviderDraft.activeProviderDraftDirty, true);
   assert.equal(withOpenAICompat.openaiCompatibleSettings.providers[0].model, "Qwen3-4B-Q5_K_M.gguf");
   assert.equal(withSelectedProvider.selectedProviderConfigName, "localhost.chat");
   assert.equal(withProviderStatus.providerConfigStatus, "Provider config applied");

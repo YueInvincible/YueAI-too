@@ -199,6 +199,12 @@ Chi giu 3 thu:
   - nut `Refresh runtime`;
   - health strip hien `reachable/offline`, model duoc detect hay khong, va endpoint dang probe;
   - hint text local path gio noi ro hon khi `127.0.0.1`/base URL khong reachable.
+- Lop desktop protocol/state gio da duoc cap nhat cho active-provider surface:
+  - `settings.providers.active.get`
+  - `settings.providers.active.catalog`
+  - `settings.providers.active.update`
+  - state shape/view helpers tuong ung da co trong `desktop/src/state.js`
+  - protocol/unit test gio khoa them regression "apply active provider xong van giu config moi", khong de mock path roi ve default.
 - Desktop shell da co them conversation tool activity timeline:
   - UI hien tai gom approval + tool activity thanh `Run inspector` theo item/run thay vi 2 panel rieng.
   - render `conversation.tool.requested`, `tool.started`, `approval.pending`, `tool.finished`, `conversation.tool.completed`;
@@ -237,6 +243,11 @@ Chi giu 3 thu:
     - `node --check desktop/src/runtime.js`
     - `node --check desktop/src/state.js`
     - `node --test desktop/tests/protocol.test.js`
+  - re-check ngay 2026-07-07 cho active-provider protocol/state slice:
+    - `node --check desktop/src/protocol.js`
+    - `node --check desktop/src/state.js`
+    - `node --test desktop/tests/protocol.test.js`
+  - `desktop/index.html` hien dang nap `desktop/src/runtime.js` truc tiep; `desktop/src/app.js` khong phai live entrypoint cua shell packaged/dev preview hien tai, nen moi thay doi runtime shell phai uu tien doi chieu voi `runtime.js`.
   - lan re-check packaged NSIS sau dot startup/config moi nhat moi chi tra diagnostic `{"stage":"scheduled"}`, chua quay lai `runtime_bootstrap`; khong duoc coi packaged path la da xanh.
 - Mot so noi dung tu handoff cu da duoc tach sang note rieng. Cho nao chua du bang chung hoac moi la dinh huong thi phai danh dau ro trong note tuong ung, khong duoc tu coi la done.
 

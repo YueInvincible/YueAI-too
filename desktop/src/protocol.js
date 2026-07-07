@@ -152,6 +152,26 @@ export class CoreProtocolClient {
     return this.updateAnthropicMessagesSettings(payload, { persist: true });
   }
 
+  getActiveProviderSettings() {
+    return this.#request("settings.providers.active.get");
+  }
+
+  getActiveProviderCatalog(payload = {}) {
+    return this.#request("settings.providers.active.catalog", payload);
+  }
+
+  updateActiveProviderSettings(payload, options = {}) {
+    const params = { ...payload };
+    if (options.persist) {
+      params.persist = true;
+    }
+    return this.#request("settings.providers.active.update", params);
+  }
+
+  saveActiveProviderSettings(payload) {
+    return this.updateActiveProviderSettings(payload, { persist: true });
+  }
+
   #request(method, params = {}) {
     return this.transport.request({ method, params, timeoutMs: DEFAULT_TIMEOUT_MS });
   }
