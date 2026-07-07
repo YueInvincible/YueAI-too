@@ -149,13 +149,17 @@ Cleanup proof:
 
 ```powershell
 $exe = ".\.test-runtime\nsis-app\yue-desktop.exe"
-$diag = Join-Path (Get-Location) ".test-runtime\nsis-cleanup-diagnostic.json"
-if (Test-Path -LiteralPath $diag) { Remove-Item -LiteralPath $diag -Force }
-$env:YUE_DESKTOP_DIAGNOSTIC_PATH = $diag
 $process = Start-Process -FilePath $exe -PassThru
 Start-Sleep -Seconds 5
-Get-CimInstance Win32_Process | Where-Object { $_.Name -eq "python.exe" -and $_.ParentProcessId -eq $process.Id -and $_.CommandLine -match "yue_core serve" }
+Get-CimInstance Win32_Process | Where-Object { $_.Name -eq "python.exe" -and $_.ParentProcessId -eq $process.Id -and $_.CommandLine -match "yue_core .*serve" }
 Stop-Process -Id $process.Id -Force
 Start-Sleep -Seconds 2
-Get-CimInstance Win32_Process | Where-Object { $_.Name -eq "python.exe" -and $_.CommandLine -match "yue_core serve" }
+Get-CimInstance Win32_Process | Where-Object { $_.Name -eq "python.exe" -and $_.CommandLine -match "yue_core .*serve" }
 ```
+
+Latest re-check on 2026-07-07:
+
+- Child process before shutdown:
+  - `"python" -m yue_core --config C:\Users\Yue\Downloads\YueAI-main\YueAI-main\config.example.toml serve`
+- After terminating `yue-desktop.exe`, khong con `python.exe` nao match `yue_core .*serve`.
+- Khong bat `YUE_DESKTOP_DIAGNOSTIC_PATH` cho cleanup proof, vi diagnostic mode se tu dong `shutdownCore()` sau khi ghi `runtime_bootstrap`.

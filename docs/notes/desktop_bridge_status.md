@@ -155,6 +155,13 @@ Re-check ngay 2026-07-07:
   - `hasIpc: true`
   - `bridgeLine: "bridge: spawned | core: started"`
 - Nghia la packaged/non-dev bootstrap path hien da xanh lai.
+- Cleanup/lifecycle proof cung da duoc re-check:
+  - launch NSIS-installed app khong bat env diagnostic
+  - app co child `python.exe` voi command:
+    - `"python" -m yue_core --config C:\Users\Yue\Downloads\YueAI-main\YueAI-main\config.example.toml serve`
+  - sau khi kill `yue-desktop.exe`, khong con `python.exe` nao match `yue_core .*serve`
+- Luu y:
+  - khong dung `YUE_DESKTOP_DIAGNOSTIC_PATH` cho cleanup proof, vi runtime diagnostic mode se goi `shutdownCore()` sau `runtime_bootstrap`.
 
 ## Dieu con can lam
 

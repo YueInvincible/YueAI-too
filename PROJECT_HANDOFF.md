@@ -265,6 +265,12 @@ Chi giu 3 thu:
       - `page_load_probe`
       - `runtime_bootstrap`
       - `bridgeLine = "bridge: spawned | core: started"`
+  - re-check ngay 2026-07-07 cho cleanup/lifecycle proof:
+    - launch NSIS-installed `yue-desktop.exe` khong bat `YUE_DESKTOP_DIAGNOSTIC_PATH`
+    - process tree co child:
+      - `"python" -m yue_core --config ... serve`
+    - sau khi kill desktop process, khong con `python.exe` nao match `yue_core .*serve`
+  - luu y: diagnostic mode hien co chu dong `shutdownCore()` sau `runtime_bootstrap`, nen khong duoc dung cung env diagnostic cho cleanup proof.
   - `desktop/index.html` hien dang nap `desktop/src/runtime.js` truc tiep; `desktop/src/app.js` khong phai live entrypoint cua shell packaged/dev preview hien tai, nen moi thay doi runtime shell phai uu tien doi chieu voi `runtime.js`.
   - fact cu `{"stage":"scheduled"}` gio khong con la trang thai moi nhat; root issue khi do la diagnostic file bi ghi de, khong phai bang chung packaged shell dung truoc bootstrap.
 - Mot so noi dung tu handoff cu da duoc tach sang note rieng. Cho nao chua du bang chung hoac moi la dinh huong thi phai danh dau ro trong note tuong ung, khong duoc tu coi la done.

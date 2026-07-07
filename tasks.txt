@@ -13,6 +13,7 @@ Completed and verified
 - Desktop protocol/state test coverage now locks the active-provider flow, including persisted apply-state through the mock transport.
 - Desktop Tauri diagnostic harness now retries packaged bootstrap probes and writes richer stages (`probe_dispatching`, `probe_dispatched`, `probe_timeout`) for NSIS debugging.
 - Packaged NSIS desktop path has been re-verified green with the richer diagnostic harness; the log reaches `runtime_bootstrap` and `bridge: spawned | core: started`.
+- Packaged NSIS cleanup proof is also green: the app spawns `python -m yue_core ... serve`, and the child exits when the desktop process is terminated.
 - JS protocol tests pass.
 - Full Python test suite passes.
 
