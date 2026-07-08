@@ -127,6 +127,7 @@ const promptPreviewCopyButton = document.querySelector("#prompt-preview-copy-but
 const promptPreviewStatusLine = document.querySelector("#prompt-preview-status-line");
 const promptPreviewContent = document.querySelector("#prompt-preview-content");
 const agentBundleCopyButton = document.querySelector("#agent-bundle-copy-button");
+const codexManifestCopyButton = document.querySelector("#codex-manifest-copy-button");
 const agentBundleStatusLine = document.querySelector("#agent-bundle-status-line");
 const agentBundleContent = document.querySelector("#agent-bundle-content");
 const defaultProviderInput = document.querySelector("#default-provider-input");
@@ -2001,6 +2002,27 @@ agentBundleCopyButton?.addEventListener("click", async () => {
     state = applyAgentBundleStatus(
       state,
       `Copy agent bundle failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  render();
+});
+
+codexManifestCopyButton?.addEventListener("click", async () => {
+  const text = state.agentBundle?.codex_manifest
+    ? JSON.stringify(state.agentBundle.codex_manifest, null, 2)
+    : "";
+  if (!text) {
+    state = applyAgentBundleStatus(state, "Codex manifest unavailable");
+    render();
+    return;
+  }
+  try {
+    await writeClipboardText(text);
+    state = applyAgentBundleStatus(state, "Copied codex manifest");
+  } catch (error) {
+    state = applyAgentBundleStatus(
+      state,
+      `Copy codex manifest failed: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
   render();

@@ -332,6 +332,33 @@ class YueCore:
         route = dict(self.conversations.routes.get(provider_role) or {})
         prompt_preview = self.conversations.prompt_preview(provider_role)
         tool_specs = filter_tool_specs_for_role(self.registry.list_specs(), provider_role)
+        tool_guide = build_tool_guide(tool_specs, provider_role=provider_role)
+        tool_rules = [
+            {
+                "name": item["name"],
+                "when_to_use": item["when_to_use"],
+                "avoid_when": item["avoid_when"],
+                "parallel_safe": item["parallel_safe"],
+                "mutates_state": item["mutates_state"],
+                "risk": item["risk"],
+            }
+            for item in tool_guide["tools"]
+        ]
+        codex_manifest = {
+            "provider_role": provider_role,
+            "system_prompt": prompt_preview["system_instruction"],
+            "tool_instructions": tool_guide["workflow"],
+            "approval_rules": {
+                "profile": self.settings.permissions.profile,
+                "interactive_approval": self.settings.permissions.interactive_approval,
+                "dangerous_model_actions_blocked_in_assist": True,
+            },
+            "parallel_rules": {
+                "read_only_parallel_only": True,
+                "writes_and_shell_sequential": True,
+            },
+            "tools": tool_rules,
+        }
         return {
             "provider_role": provider_role,
             "default_provider": self.settings.conversation.default_provider,
@@ -341,7 +368,8 @@ class YueCore:
             },
             "active_provider": self._resolve_active_provider_details(),
             "prompt_preview": prompt_preview,
-            "tool_guide": build_tool_guide(tool_specs, provider_role=provider_role),
+            "tool_guide": tool_guide,
+            "codex_manifest": codex_manifest,
             "tools": [
                 {
                     "name": spec.name,

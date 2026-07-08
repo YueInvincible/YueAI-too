@@ -265,6 +265,8 @@ test("mock transport supports the current desktop shell flow", async () => {
   assert.equal(agentBundle.provider_role, "coding_agent");
   assert.equal(agentBundle.route.prompt_profile, "coding_agent");
   assert.equal(Array.isArray(agentBundle.tools), true);
+  assert.equal(agentBundle.codex_manifest.provider_role, "coding_agent");
+  assert.equal(Array.isArray(agentBundle.codex_manifest.tools), true);
   const invoked = await client.invokeMany(
     [{ name: "workspace.read", arguments: { path: "src/demo.js", start_line: 1, end_line: 5 } }],
     { parallel: true, actor: "desktop-ui", sessionId: "desktop-preview" },
@@ -1006,6 +1008,21 @@ test("core session client preserves session id across desktop requests", async (
                       tool_guide: {
                         provider_role: "coding_agent",
                         workflow: ["Inspect first"],
+                        tools: [{ name: "workspace_read" }],
+                      },
+                      codex_manifest: {
+                        provider_role: request.params.provider_role || "coding_agent",
+                        system_prompt: "System:\nCode carefully\n\nCoding agent tool guide",
+                        tool_instructions: ["Inspect first"],
+                        approval_rules: {
+                          profile: "assist",
+                          interactive_approval: true,
+                          dangerous_model_actions_blocked_in_assist: true,
+                        },
+                        parallel_rules: {
+                          read_only_parallel_only: true,
+                          writes_and_shell_sequential: true,
+                        },
                         tools: [{ name: "workspace_read" }],
                       },
                       tools: [

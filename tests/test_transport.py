@@ -218,6 +218,10 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Coding agent tool guide:", bundle["prompt_preview"]["system_instruction"])
         self.assertIn("tools", bundle)
         self.assertIn("tool_guide", bundle)
+        self.assertIn("codex_manifest", bundle)
+        self.assertEqual(bundle["codex_manifest"]["provider_role"], "coding_agent")
+        self.assertIn("system_prompt", bundle["codex_manifest"])
+        self.assertGreater(len(bundle["codex_manifest"]["tools"]), 0)
         tool_names = {item["name"] for item in bundle["tools"]}
         self.assertIn("workspace_read", tool_names)
         self.assertIn("shell_run", tool_names)

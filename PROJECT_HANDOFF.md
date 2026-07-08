@@ -199,6 +199,7 @@ Chi giu 3 thu:
   - render them `Tool playbook` runtime-generated cho `coding_agent` qua `tools.guide`;
   - render + copy duoc `runtime prompt` that cua `coding_agent` qua `conversations.prompt_preview`;
   - render + copy duoc `agent bundle` gom route/provider/prompt/tool-playbook/tool-catalog cho `coding_agent`;
+  - render + copy duoc `codex manifest` rut gon trich tu `agent bundle`, gom system prompt + workflow + approval/parallellism/tool rules cho client agent khac;
   - hien ket qua batch inspect theo tung tool call thay vi chi dump vao message log.
 - Desktop shell UI da duoc doi sang chat-first shell ro hon:
   - `Ops` va `Config` la drawer mo theo nguc canh thay vi full panel song song;

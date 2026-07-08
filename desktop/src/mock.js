@@ -270,6 +270,28 @@ export function createMockTransport() {
     },
     prompt_preview: promptPreview,
     tool_guide: toolGuide,
+    codex_manifest: {
+      provider_role: "coding_agent",
+      system_prompt: promptPreview.system_instruction,
+      tool_instructions: toolGuide.workflow,
+      approval_rules: {
+        profile: "assist",
+        interactive_approval: true,
+        dangerous_model_actions_blocked_in_assist: true,
+      },
+      parallel_rules: {
+        read_only_parallel_only: true,
+        writes_and_shell_sequential: true,
+      },
+      tools: toolGuide.tools.map((item) => ({
+        name: item.name,
+        when_to_use: item.when_to_use,
+        avoid_when: item.avoid_when,
+        parallel_safe: item.parallel_safe,
+        mutates_state: item.mutates_state,
+        risk: item.risk,
+      })),
+    },
     tools: toolCatalog,
   };
 

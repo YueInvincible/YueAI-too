@@ -1345,6 +1345,28 @@
       },
       prompt_preview: promptPreview,
       tool_guide: toolGuide,
+      codex_manifest: {
+        provider_role: "coding_agent",
+        system_prompt: promptPreview.system_instruction,
+        tool_instructions: toolGuide.workflow,
+        approval_rules: {
+          profile: "assist",
+          interactive_approval: true,
+          dangerous_model_actions_blocked_in_assist: true,
+        },
+        parallel_rules: {
+          read_only_parallel_only: true,
+          writes_and_shell_sequential: true,
+        },
+        tools: toolGuide.tools.map((item) => ({
+          name: item.name,
+          when_to_use: item.when_to_use,
+          avoid_when: item.avoid_when,
+          parallel_safe: item.parallel_safe,
+          mutates_state: item.mutates_state,
+          risk: item.risk,
+        })),
+      },
       tools: toolCatalog,
     };
 
@@ -1821,6 +1843,7 @@
   const promptPreviewStatusLine = document.querySelector("#prompt-preview-status-line");
   const promptPreviewContent = document.querySelector("#prompt-preview-content");
   const agentBundleCopyButton = document.querySelector("#agent-bundle-copy-button");
+  const codexManifestCopyButton = document.querySelector("#codex-manifest-copy-button");
   const agentBundleStatusLine = document.querySelector("#agent-bundle-status-line");
   const agentBundleContent = document.querySelector("#agent-bundle-content");
   const defaultProviderInput = document.querySelector("#default-provider-input");
@@ -4546,6 +4569,27 @@
       state = applyAgentBundleStatus(
         state,
         `Copy agent bundle failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    render();
+  });
+
+  codexManifestCopyButton?.addEventListener("click", async () => {
+    const text = state.agentBundle?.codex_manifest
+      ? JSON.stringify(state.agentBundle.codex_manifest, null, 2)
+      : "";
+    if (!text) {
+      state = applyAgentBundleStatus(state, "Codex manifest unavailable");
+      render();
+      return;
+    }
+    try {
+      await writeClipboardText(text);
+      state = applyAgentBundleStatus(state, "Copied codex manifest");
+    } catch (error) {
+      state = applyAgentBundleStatus(
+        state,
+        `Copy codex manifest failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
     render();
