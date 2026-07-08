@@ -97,6 +97,7 @@ Desktop shell UI
     - tool playbook runtime-generated cho `coding_agent`;
     - runtime prompt preview co the copy duoc cho `coding_agent`;
     - codex-style manifest rut gon co the copy tu `agent bundle`;
+    - starter pack copy-ready cho agent client khac;
     - parallel inspect ket qua theo tung call.
   - can nho: runtime shell moi nhat dang di truoc o `runtime.js`; neu sua desktop behavior, phai check drift.
 
@@ -109,6 +110,7 @@ Desktop shell UI
     - tool playbook runtime-generated cung da duoc dua vao `Ops`;
     - runtime prompt preview va copy action cung da duoc dua vao `Ops`;
     - `agent bundle` va `codex manifest` copy action cung da duoc dua vao `Ops`;
+    - `agent starter pack` preview + copy action cung da duoc dua vao `Ops`;
     - khung chat frame co dinh, khong con che do `Focus chat`.
     - active provider co them runtime readiness strip + nut `Refresh runtime`.
   - bat buoc giu dong bo logic voi `app.js` hoac ghi ro cho note neu runtime path di truoc.
@@ -163,6 +165,7 @@ Desktop shell UI
     - `tools.list`
     - `tools.guide`
     - `agents.bundle`
+    - `agents.starter_pack`
     - `tools.invoke_many`
     - `permissions.allow_all_cmd.get`
     - `permissions.allow_all_cmd.set`
@@ -175,6 +178,7 @@ Desktop shell UI
   - `tools.guide` tra them 1 playbook co cau truc cho agent client, tap trung vao workflow inspect/edit/verify va rule "khi nao dung / khi nao tranh" cho tool surface uu tien.
   - `agents.bundle` gom route/provider role, active provider snapshot, runtime prompt preview, tool playbook, va filtered tool catalog thanh 1 payload copy/export duoc cho agent client khac.
   - `agents.bundle` gio con kem `codex_manifest`: ban rut gon de feed sang agent client theo style Codex, gom system prompt, workflow, approval/parallellism rules, va tool rules da filter.
+  - `agents.starter_pack` build tren cung source-of-truth do, nhung tra them payload copy-ready cho nguoi/agent client: starter prompt, integration checklist, va 1 blob markdown de paste thang.
   - `tools.list` cung nhan `provider_role` tuy chon de lay dung tool catalog da duoc policy filter cho `coding_agent`; role nay hien uu tien alias underscore, con ten dotted legacy van duoc giu cho transport/UI flow cu.
 
 - `src/yue_core/openai_compat.py`
@@ -457,6 +461,7 @@ Frontend methods trong `protocol.js`:
 - desktop shell gio cung goi `conversations.prompt_preview` cho role `coding_agent`, de user copy duoc system instruction runtime that thay vi doan tu editor.
 - desktop shell gio cung goi `agents.bundle` cho role `coding_agent`, de copy/export duoc 1 snapshot agent surface day du hon.
 - desktop shell gio cung cho copy rieng `codex manifest` trich tu `agents.bundle`, de paste nhanh vao agent client hoac tool wrapper ma khong can gui ca payload lon.
+- desktop shell gio cung goi `agents.starter_pack` cho role `coding_agent`, de hien 1 preview text co san prompt + checklist + manifest cho integration nhanh.
 - `invokeMany`
 - `getAllowAllCmd`
 - `setAllowAllCmd`
@@ -493,6 +498,12 @@ Moi method:
 - `agents.bundle` giu 2 muc export:
   - payload day du cho debug/snapshot;
   - `codex_manifest` rut gon cho huong dan tool/runtime rule theo style Codex.
+- `agents.starter_pack` la muc export thu 3, toi uu cho copy/paste:
+  - `starter_prompt`
+  - `system_prompt`
+  - `tool_manifest_json`
+  - `integration_checklist[]`
+  - `text` markdown
 - `tools.invoke_many` cho phep batch tool calls; neu `parallel = true` thi chi chay song song cho tool co `parallel_safe = true` va `mutates_state = false`.
 
 ### Tu core sang frontend

@@ -294,6 +294,29 @@ export function createMockTransport() {
     },
     tools: toolCatalog,
   };
+  const agentStarterPack = {
+    provider_role: "coding_agent",
+    name: "YueAI coding_agent starter pack",
+    summary: "Copy-ready prompt and tool rules for wiring another coding-agent client.",
+    starter_prompt:
+      "You are a coding agent attached to the YueAI runtime.\nFollow the system prompt and tool manifest below.\nDo not rename tools, widen permissions, or parallelize state-changing actions.\nWhen uncertain, inspect first and ask the user before destructive or ambiguous steps.",
+    system_prompt: promptPreview.system_instruction,
+    codex_manifest: agentBundle.codex_manifest,
+    tool_manifest_json: JSON.stringify(agentBundle.codex_manifest, null, 2),
+    integration_checklist: [
+      "Load the system prompt exactly as provided before the first user turn.",
+      "Register tools with the exact filtered names from the manifest.",
+      "Treat read-only tools as the only safe parallel batch; keep writes and shell actions sequential.",
+      "Preserve approval boundaries from the manifest before any risky action.",
+      "Prefer inspect -> edit -> verify, and ask the user when intent or blast radius is unclear.",
+    ],
+    text:
+      "# YueAI coding_agent starter pack\n\nUse this pack when wiring another agent client to the YueAI runtime.\n\n## Starter prompt\n```text\nYou are a coding agent attached to the YueAI runtime.\nFollow the system prompt and tool manifest below.\nDo not rename tools, widen permissions, or parallelize state-changing actions.\nWhen uncertain, inspect first and ask the user before destructive or ambiguous steps.\n```\n\n## Runtime system prompt\n```text\n"
+      + promptPreview.system_instruction
+      + "\n```\n\n## Integration checklist\n- Load the system prompt exactly as provided before the first user turn.\n- Register tools with the exact filtered names from the manifest.\n- Treat read-only tools as the only safe parallel batch; keep writes and shell actions sequential.\n- Preserve approval boundaries from the manifest before any risky action.\n- Prefer inspect -> edit -> verify, and ask the user when intent or blast radius is unclear.\n\n## Codex-style tool manifest\n```json\n"
+      + JSON.stringify(agentBundle.codex_manifest, null, 2)
+      + "\n```",
+  };
 
   return {
     async request({ method, params }) {
@@ -371,6 +394,8 @@ export function createMockTransport() {
           return JSON.parse(JSON.stringify(toolGuide));
         case "agents.bundle":
           return JSON.parse(JSON.stringify(agentBundle));
+        case "agents.starter_pack":
+          return JSON.parse(JSON.stringify(agentStarterPack));
         case "tools.invoke_many":
           return {
             parallel: Boolean(params.parallel),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import logging
 from dataclasses import replace
 from pathlib import Path
@@ -384,6 +385,60 @@ class YueCore:
                 }
                 for spec in tool_specs
             ],
+        }
+
+    def agent_starter_pack(self, provider_role: str = "coding_agent") -> dict[str, Any]:
+        bundle = self.agent_bundle_snapshot(provider_role)
+        codex_manifest = copy.deepcopy(bundle["codex_manifest"])
+        tool_manifest_json = json.dumps(codex_manifest, indent=2, ensure_ascii=False)
+        integration_checklist = [
+            "Load the system prompt exactly as provided before the first user turn.",
+            "Register tools with the exact filtered names from the manifest.",
+            "Treat read-only tools as the only safe parallel batch; keep writes and shell actions sequential.",
+            "Preserve approval boundaries from the manifest before any risky action.",
+            "Prefer inspect -> edit -> verify, and ask the user when intent or blast radius is unclear.",
+        ]
+        starter_prompt = (
+            "You are a coding agent attached to the YueAI runtime.\n"
+            "Follow the system prompt and tool manifest below.\n"
+            "Do not rename tools, widen permissions, or parallelize state-changing actions.\n"
+            "When uncertain, inspect first and ask the user before destructive or ambiguous steps."
+        )
+        text = "\n".join(
+            [
+                f"# YueAI {provider_role} starter pack",
+                "",
+                "Use this pack when wiring another agent client to the YueAI runtime.",
+                "",
+                "## Starter prompt",
+                "```text",
+                starter_prompt,
+                "```",
+                "",
+                "## Runtime system prompt",
+                "```text",
+                bundle["prompt_preview"]["system_instruction"],
+                "```",
+                "",
+                "## Integration checklist",
+                *[f"- {item}" for item in integration_checklist],
+                "",
+                "## Codex-style tool manifest",
+                "```json",
+                tool_manifest_json,
+                "```",
+            ]
+        )
+        return {
+            "provider_role": provider_role,
+            "name": f"YueAI {provider_role} starter pack",
+            "summary": "Copy-ready prompt and tool rules for wiring another coding-agent client.",
+            "starter_prompt": starter_prompt,
+            "system_prompt": bundle["prompt_preview"]["system_instruction"],
+            "codex_manifest": codex_manifest,
+            "tool_manifest_json": tool_manifest_json,
+            "integration_checklist": integration_checklist,
+            "text": text,
         }
 
     def openai_compatible_settings_snapshot(self) -> dict[str, Any]:

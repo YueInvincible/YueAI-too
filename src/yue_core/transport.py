@@ -108,6 +108,10 @@ class JsonLineServer:
                 payload = self.core.agent_bundle_snapshot(
                     str(params.get("provider_role", "coding_agent"))
                 )
+            elif method == "agents.starter_pack":
+                payload = self.core.agent_starter_pack(
+                    str(params.get("provider_role", "coding_agent"))
+                )
             elif method == "tools.invoke":
                 result = await self.core.invoke(
                     params["name"],

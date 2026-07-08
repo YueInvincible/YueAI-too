@@ -83,6 +83,12 @@
       });
     }
 
+    getAgentStarterPack(options = {}) {
+      return this.#request("agents.starter_pack", {
+        provider_role: options.providerRole || "coding_agent",
+      });
+    }
+
     invokeMany(calls, options = {}) {
       return this.#request("tools.invoke_many", {
         calls,
@@ -251,6 +257,8 @@
       promptPreviewStatus: "Runtime prompt unavailable",
       agentBundle: null,
       agentBundleStatus: "Agent bundle unavailable",
+      agentStarterPack: null,
+      agentStarterPackStatus: "Agent starter pack unavailable",
       allowAllCmd: false,
       allowAllCmdUpdatedBy: "none",
       allowAllCmdStatus: "Session shell grant disabled",
@@ -619,6 +627,24 @@
     return {
       ...state,
       agentBundleStatus: agentBundleStatus || state.agentBundleStatus,
+    };
+  }
+
+  function applyAgentStarterPack(state, agentStarterPack) {
+    const nextPack = agentStarterPack ? JSON.parse(JSON.stringify(agentStarterPack)) : null;
+    return {
+      ...state,
+      agentStarterPack: nextPack,
+      agentStarterPackStatus: nextPack
+        ? `${nextPack.provider_role || "agent"} starter pack ready`
+        : "Agent starter pack unavailable",
+    };
+  }
+
+  function applyAgentStarterPackStatus(state, agentStarterPackStatus) {
+    return {
+      ...state,
+      agentStarterPackStatus: agentStarterPackStatus || state.agentStarterPackStatus,
     };
   }
 
@@ -1369,6 +1395,29 @@
       },
       tools: toolCatalog,
     };
+    const agentStarterPack = {
+      provider_role: "coding_agent",
+      name: "YueAI coding_agent starter pack",
+      summary: "Copy-ready prompt and tool rules for wiring another coding-agent client.",
+      starter_prompt:
+        "You are a coding agent attached to the YueAI runtime.\nFollow the system prompt and tool manifest below.\nDo not rename tools, widen permissions, or parallelize state-changing actions.\nWhen uncertain, inspect first and ask the user before destructive or ambiguous steps.",
+      system_prompt: promptPreview.system_instruction,
+      codex_manifest: agentBundle.codex_manifest,
+      tool_manifest_json: JSON.stringify(agentBundle.codex_manifest, null, 2),
+      integration_checklist: [
+        "Load the system prompt exactly as provided before the first user turn.",
+        "Register tools with the exact filtered names from the manifest.",
+        "Treat read-only tools as the only safe parallel batch; keep writes and shell actions sequential.",
+        "Preserve approval boundaries from the manifest before any risky action.",
+        "Prefer inspect -> edit -> verify, and ask the user when intent or blast radius is unclear.",
+      ],
+      text:
+        "# YueAI coding_agent starter pack\n\nUse this pack when wiring another agent client to the YueAI runtime.\n\n## Starter prompt\n```text\nYou are a coding agent attached to the YueAI runtime.\nFollow the system prompt and tool manifest below.\nDo not rename tools, widen permissions, or parallelize state-changing actions.\nWhen uncertain, inspect first and ask the user before destructive or ambiguous steps.\n```\n\n## Runtime system prompt\n```text\n"
+        + promptPreview.system_instruction
+        + "\n```\n\n## Integration checklist\n- Load the system prompt exactly as provided before the first user turn.\n- Register tools with the exact filtered names from the manifest.\n- Treat read-only tools as the only safe parallel batch; keep writes and shell actions sequential.\n- Preserve approval boundaries from the manifest before any risky action.\n- Prefer inspect -> edit -> verify, and ask the user when intent or blast radius is unclear.\n\n## Codex-style tool manifest\n```json\n"
+        + JSON.stringify(agentBundle.codex_manifest, null, 2)
+        + "\n```",
+    };
 
     return {
       async request({ method, params }) {
@@ -1432,6 +1481,8 @@
           return JSON.parse(JSON.stringify(toolGuide));
         case "agents.bundle":
           return JSON.parse(JSON.stringify(agentBundle));
+        case "agents.starter_pack":
+          return JSON.parse(JSON.stringify(agentStarterPack));
         case "tools.invoke_many":
             return {
               parallel: Boolean(params.parallel),
@@ -1846,6 +1897,9 @@
   const codexManifestCopyButton = document.querySelector("#codex-manifest-copy-button");
   const agentBundleStatusLine = document.querySelector("#agent-bundle-status-line");
   const agentBundleContent = document.querySelector("#agent-bundle-content");
+  const agentStarterPackCopyButton = document.querySelector("#agent-starter-pack-copy-button");
+  const agentStarterPackStatusLine = document.querySelector("#agent-starter-pack-status-line");
+  const agentStarterPackContent = document.querySelector("#agent-starter-pack-content");
   const defaultProviderInput = document.querySelector("#default-provider-input");
   const chatProviderInput = document.querySelector("#chat-provider-input");
   const chatProfileInput = document.querySelector("#chat-profile-input");
@@ -2304,6 +2358,7 @@
     toolGuideStatusLine.textContent = state.toolGuideStatus;
     promptPreviewStatusLine.textContent = state.promptPreviewStatus;
     agentBundleStatusLine.textContent = state.agentBundleStatus;
+    agentStarterPackStatusLine.textContent = state.agentStarterPackStatus;
     allowAllCmdToggle.checked = Boolean(state.allowAllCmd);
     bridgeLine.title = state.bridgeLastError || state.bridgeNote;
     consolePanel.classList.toggle("hidden", !state.consoleOpen);
@@ -2634,6 +2689,8 @@
     agentBundleContent.textContent = state.agentBundle
       ? JSON.stringify(state.agentBundle, null, 2)
       : "Agent bundle unavailable.";
+    agentStarterPackContent.textContent =
+      state.agentStarterPack?.text || "Agent starter pack unavailable.";
 
     parallelInspectResults.replaceChildren();
     for (const item of state.parallelInspectResults) {
@@ -3025,12 +3082,12 @@
     render();
   }
 
-  async function copyToolingPayload(text, successStatus, failurePrefix) {
+  async function copyToolingPayload(text, successStatus, failurePrefix, applyStatus = applyPromptPreviewStatus) {
     try {
       await writeClipboardText(text);
-      state = applyPromptPreviewStatus(state, successStatus);
+      state = applyStatus(state, successStatus);
     } catch (error) {
-      state = applyPromptPreviewStatus(
+      state = applyStatus(
         state,
         `${failurePrefix}: ${error instanceof Error ? error.message : String(error)}`,
       );
@@ -3696,6 +3753,7 @@
     state = applyToolGuide(state, await client.getToolsGuide({ providerRole: "coding_agent" }));
     state = applyPromptPreview(state, await client.getConversationPromptPreview({ providerRole: "coding_agent" }));
     state = applyAgentBundle(state, await client.getAgentBundle({ providerRole: "coding_agent" }));
+    state = applyAgentStarterPack(state, await client.getAgentStarterPack({ providerRole: "coding_agent" }));
     state = applyAllowAllCmdGrant(state, await client.getAllowAllCmd(sessionId));
     syncConfigScopeFromProvider(
       state.conversationSettings?.routes?.chat?.provider ||
@@ -4593,6 +4651,21 @@
       );
     }
     render();
+  });
+
+  agentStarterPackCopyButton?.addEventListener("click", async () => {
+    const text = state.agentStarterPack?.text || "";
+    if (!text) {
+      state = applyAgentStarterPackStatus(state, "Agent starter pack unavailable");
+      render();
+      return;
+    }
+    await copyToolingPayload(
+      text,
+      "Copied agent starter pack",
+      "Copy starter pack failed",
+      applyAgentStarterPackStatus,
+    );
   });
 
   configScopeSelect?.addEventListener("change", () => {

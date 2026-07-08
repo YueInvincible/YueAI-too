@@ -4,6 +4,8 @@ import {
   applyApprovalStatus,
   applyAgentBundle,
   applyAgentBundleStatus,
+  applyAgentStarterPack,
+  applyAgentStarterPackStatus,
   applyAllowAllCmdGrant,
   applyAllowAllCmdStatus,
   appendMessage,
@@ -130,6 +132,9 @@ const agentBundleCopyButton = document.querySelector("#agent-bundle-copy-button"
 const codexManifestCopyButton = document.querySelector("#codex-manifest-copy-button");
 const agentBundleStatusLine = document.querySelector("#agent-bundle-status-line");
 const agentBundleContent = document.querySelector("#agent-bundle-content");
+const agentStarterPackCopyButton = document.querySelector("#agent-starter-pack-copy-button");
+const agentStarterPackStatusLine = document.querySelector("#agent-starter-pack-status-line");
+const agentStarterPackContent = document.querySelector("#agent-starter-pack-content");
 const defaultProviderInput = document.querySelector("#default-provider-input");
 const chatProviderInput = document.querySelector("#chat-provider-input");
 const chatProfileInput = document.querySelector("#chat-profile-input");
@@ -269,6 +274,7 @@ function render() {
   toolGuideStatusLine.textContent = state.toolGuideStatus;
   promptPreviewStatusLine.textContent = state.promptPreviewStatus;
   agentBundleStatusLine.textContent = state.agentBundleStatus;
+  agentStarterPackStatusLine.textContent = state.agentStarterPackStatus;
   allowAllCmdToggle.checked = Boolean(state.allowAllCmd);
   bridgeLine.title = state.bridgeLastError || state.bridgeNote;
   consolePanel.classList.toggle("hidden", !state.consoleOpen);
@@ -501,6 +507,7 @@ function render() {
   agentBundleContent.textContent = state.agentBundle
     ? JSON.stringify(state.agentBundle, null, 2)
     : "Agent bundle unavailable.";
+  agentStarterPackContent.textContent = state.agentStarterPack?.text || "Agent starter pack unavailable.";
 
   parallelInspectResults.replaceChildren();
   for (const item of state.parallelInspectResults) {
@@ -1018,12 +1025,17 @@ async function copyRunPayload(text, successStatus) {
   render();
 }
 
-async function copyToolingPayload(text, successStatus, failurePrefix) {
+async function copyToolingPayload(
+  text,
+  successStatus,
+  failurePrefix,
+  applyStatus = applyPromptPreviewStatus,
+) {
   try {
     await writeClipboardText(text);
-    state = applyPromptPreviewStatus(state, successStatus);
+    state = applyStatus(state, successStatus);
   } catch (error) {
-    state = applyPromptPreviewStatus(
+    state = applyStatus(
       state,
       `${failurePrefix}: ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -1366,6 +1378,7 @@ async function bootstrap() {
   state = applyToolGuide(state, await client.getToolsGuide({ providerRole: "coding_agent" }));
   state = applyPromptPreview(state, await client.getConversationPromptPreview({ providerRole: "coding_agent" }));
   state = applyAgentBundle(state, await client.getAgentBundle({ providerRole: "coding_agent" }));
+  state = applyAgentStarterPack(state, await client.getAgentStarterPack({ providerRole: "coding_agent" }));
   state = applyAllowAllCmdGrant(state, await client.getAllowAllCmd(sessionId));
   if (bridgeCommands) {
     pendingRuntimeInfo = await bridgeCommands.runtimeInfo();
@@ -2026,6 +2039,21 @@ codexManifestCopyButton?.addEventListener("click", async () => {
     );
   }
   render();
+});
+
+agentStarterPackCopyButton?.addEventListener("click", async () => {
+  const text = state.agentStarterPack?.text || "";
+  if (!text) {
+    state = applyAgentStarterPackStatus(state, "Agent starter pack unavailable");
+    render();
+    return;
+  }
+  await copyToolingPayload(
+    text,
+    "Copied agent starter pack",
+    "Copy starter pack failed",
+    applyAgentStarterPackStatus,
+  );
 });
 
 window.addEventListener("beforeunload", async () => {

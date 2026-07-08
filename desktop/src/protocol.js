@@ -73,6 +73,12 @@ export class CoreProtocolClient {
     });
   }
 
+  getAgentStarterPack(options = {}) {
+    return this.#request("agents.starter_pack", {
+      provider_role: options.providerRole || "coding_agent",
+    });
+  }
+
   invokeMany(calls, options = {}) {
     return this.#request("tools.invoke_many", {
       calls,

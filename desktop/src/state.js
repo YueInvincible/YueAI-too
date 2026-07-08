@@ -44,6 +44,8 @@ export function defaultDesktopViewState() {
     promptPreviewStatus: "Runtime prompt unavailable",
     agentBundle: null,
     agentBundleStatus: "Agent bundle unavailable",
+    agentStarterPack: null,
+    agentStarterPackStatus: "Agent starter pack unavailable",
     allowAllCmd: false,
     allowAllCmdUpdatedBy: "none",
     allowAllCmdStatus: "Session shell grant disabled",
@@ -416,6 +418,24 @@ export function applyAgentBundleStatus(state, agentBundleStatus) {
   return {
     ...state,
     agentBundleStatus: agentBundleStatus || state.agentBundleStatus,
+  };
+}
+
+export function applyAgentStarterPack(state, agentStarterPack) {
+  const nextPack = agentStarterPack ? JSON.parse(JSON.stringify(agentStarterPack)) : null;
+  return {
+    ...state,
+    agentStarterPack: nextPack,
+    agentStarterPackStatus: nextPack
+      ? `${nextPack.provider_role || "agent"} starter pack ready`
+      : "Agent starter pack unavailable",
+  };
+}
+
+export function applyAgentStarterPackStatus(state, agentStarterPackStatus) {
+  return {
+    ...state,
+    agentStarterPackStatus: agentStarterPackStatus || state.agentStarterPackStatus,
   };
 }
 

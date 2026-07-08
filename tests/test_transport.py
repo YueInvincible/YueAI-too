@@ -226,6 +226,33 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("workspace_read", tool_names)
         self.assertIn("shell_run", tool_names)
 
+    async def test_agent_starter_pack_returns_copy_ready_agent_payload(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            core = YueCore(settings)
+            server = JsonLineServer(core)
+            async with core:
+                response = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "agent-starter-pack",
+                            "method": "agents.starter_pack",
+                            "params": {"provider_role": "coding_agent"},
+                        }
+                    )
+                )
+        self.assertTrue(response["ok"])
+        pack = response["result"]
+        self.assertEqual(pack["provider_role"], "coding_agent")
+        self.assertIn("starter_prompt", pack)
+        self.assertIn("system_prompt", pack)
+        self.assertIn("codex_manifest", pack)
+        self.assertIn("integration_checklist", pack)
+        self.assertGreater(len(pack["integration_checklist"]), 0)
+        self.assertIn("# YueAI coding_agent starter pack", pack["text"])
+        self.assertIn("## Codex-style tool manifest", pack["text"])
+
     async def test_conversation_round_trip(self):
         with workspace_temp_dir() as temp:
             settings = Settings()
