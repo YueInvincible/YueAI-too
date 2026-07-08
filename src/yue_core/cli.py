@@ -7,6 +7,7 @@ import platform
 import sys
 from pathlib import Path
 
+from .agent_exports import AGENT_STARTER_PACK_FORMATS, render_agent_starter_pack_output
 from .app import YueCore
 from .config import load_settings
 from .desktop_demo import launch_tk_desktop_demo, run_desktop_headless_smoke_test
@@ -27,24 +28,6 @@ def _write_stdout_text(text: str) -> None:
             buffer.write(payload)
             buffer.flush()
 
-
-def _render_agent_starter_pack_output(payload: dict[str, object], format_name: str) -> str:
-    if format_name == "json":
-        return json.dumps(payload, ensure_ascii=False, indent=2)
-    if format_name == "text":
-        return str(payload["text"])
-    if format_name == "manifest-json":
-        return str(payload["tool_manifest_json"])
-    if format_name == "system-prompt":
-        return str(payload["system_prompt"])
-    if format_name == "starter-prompt":
-        return str(payload["starter_prompt"])
-    if format_name == "checklist":
-        items = payload.get("integration_checklist", [])
-        return "\n".join(f"- {item}" for item in items)
-    raise ValueError(f"Unsupported export format: {format_name}")
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="yue-core")
     parser.add_argument("--config", type=Path, help="Path to a TOML configuration file")
@@ -55,14 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
     export_agent_starter_pack.add_argument("--provider-role", default="coding_agent")
     export_agent_starter_pack.add_argument(
         "--format",
-        choices=(
-            "text",
-            "json",
-            "manifest-json",
-            "system-prompt",
-            "starter-prompt",
-            "checklist",
-        ),
+        choices=AGENT_STARTER_PACK_FORMATS,
         default="text",
         help="Select a full pack export or one focused slice for downstream agent wiring",
     )
@@ -146,7 +122,7 @@ async def run(args: argparse.Namespace) -> int:
             return 0
         if args.command == "export-agent-starter-pack":
             payload = core.agent_starter_pack(args.provider_role)
-            output_text = _render_agent_starter_pack_output(payload, args.format)
+            output_text = render_agent_starter_pack_output(payload, args.format)
             if args.output is not None:
                 args.output.write_text(
                     output_text + ("" if output_text.endswith("\n") else "\n"),

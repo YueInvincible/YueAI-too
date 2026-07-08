@@ -253,6 +253,31 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("# YueAI coding_agent starter pack", pack["text"])
         self.assertIn("## Codex-style tool manifest", pack["text"])
 
+    async def test_agent_starter_pack_can_return_focused_format_slice(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            core = YueCore(settings)
+            server = JsonLineServer(core)
+            async with core:
+                response = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "agent-starter-pack-system",
+                            "method": "agents.starter_pack",
+                            "params": {
+                                "provider_role": "coding_agent",
+                                "format": "system-prompt",
+                            },
+                        }
+                    )
+                )
+        self.assertTrue(response["ok"])
+        pack = response["result"]
+        self.assertEqual(pack["provider_role"], "coding_agent")
+        self.assertEqual(pack["format"], "system-prompt")
+        self.assertIn("Coding agent tool guide:", pack["content"])
+
     async def test_conversation_round_trip(self):
         with workspace_temp_dir() as temp:
             settings = Settings()

@@ -6,7 +6,8 @@ from argparse import Namespace
 from unittest.mock import patch
 
 from tests.support import workspace_temp_dir
-from yue_core.cli import _render_agent_starter_pack_output, _write_stdout_text, run
+from yue_core.agent_exports import render_agent_starter_pack_output
+from yue_core.cli import _write_stdout_text, run
 
 
 class CliTests(unittest.TestCase):
@@ -65,12 +66,12 @@ class CliTests(unittest.TestCase):
             "integration_checklist": ["first", "second"],
             "text": "full text",
         }
-        self.assertEqual(_render_agent_starter_pack_output(payload, "text"), "full text")
-        self.assertEqual(_render_agent_starter_pack_output(payload, "starter-prompt"), "starter")
-        self.assertEqual(_render_agent_starter_pack_output(payload, "system-prompt"), "system")
-        self.assertIn("\"provider_role\"", _render_agent_starter_pack_output(payload, "manifest-json"))
+        self.assertEqual(render_agent_starter_pack_output(payload, "text"), "full text")
+        self.assertEqual(render_agent_starter_pack_output(payload, "starter-prompt"), "starter")
+        self.assertEqual(render_agent_starter_pack_output(payload, "system-prompt"), "system")
+        self.assertIn("\"provider_role\"", render_agent_starter_pack_output(payload, "manifest-json"))
         self.assertEqual(
-            _render_agent_starter_pack_output(payload, "checklist"),
+            render_agent_starter_pack_output(payload, "checklist"),
             "- first\n- second",
         )
 

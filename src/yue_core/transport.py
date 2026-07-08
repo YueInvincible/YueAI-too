@@ -7,6 +7,7 @@ from typing import Any, TextIO
 from uuid import uuid4
 
 from .app import YueCore
+from .agent_exports import AGENT_STARTER_PACK_FORMATS, render_agent_starter_pack_output
 from .contracts import CoreEvent, PermissionOutcome
 from .tool_catalog import filter_tool_specs_for_role
 from .tool_guidance import build_tool_guide, render_tool_guide_text
@@ -109,9 +110,20 @@ class JsonLineServer:
                     str(params.get("provider_role", "coding_agent"))
                 )
             elif method == "agents.starter_pack":
-                payload = self.core.agent_starter_pack(
-                    str(params.get("provider_role", "coding_agent"))
-                )
+                provider_role = str(params.get("provider_role", "coding_agent"))
+                payload = self.core.agent_starter_pack(provider_role)
+                format_name = params.get("format")
+                if format_name is not None:
+                    format_name = str(format_name)
+                    if format_name not in AGENT_STARTER_PACK_FORMATS:
+                        raise ValueError(
+                            f"Unsupported starter pack format: {format_name}"
+                        )
+                    payload = {
+                        "provider_role": provider_role,
+                        "format": format_name,
+                        "content": render_agent_starter_pack_output(payload, format_name),
+                    }
             elif method == "tools.invoke":
                 result = await self.core.invoke(
                     params["name"],

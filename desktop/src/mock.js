@@ -395,6 +395,25 @@ export function createMockTransport() {
         case "agents.bundle":
           return JSON.parse(JSON.stringify(agentBundle));
         case "agents.starter_pack":
+          if (params?.format) {
+            const format = String(params.format);
+            const slices = {
+              text: agentStarterPack.text,
+              json: JSON.stringify(agentStarterPack, null, 2),
+              "manifest-json": agentStarterPack.tool_manifest_json,
+              "system-prompt": agentStarterPack.system_prompt,
+              "starter-prompt": agentStarterPack.starter_prompt,
+              checklist: agentStarterPack.integration_checklist.map((item) => `- ${item}`).join("\n"),
+            };
+            if (!(format in slices)) {
+              throw new Error(`Unsupported starter pack format: ${format}`);
+            }
+            return {
+              provider_role: params.provider_role || "coding_agent",
+              format,
+              content: slices[format],
+            };
+          }
           return JSON.parse(JSON.stringify(agentStarterPack));
         case "tools.invoke_many":
           return {

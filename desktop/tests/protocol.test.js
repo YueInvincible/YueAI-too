@@ -90,6 +90,7 @@ test("protocol client dispatches desktop methods through transport", async () =>
   await client.getConversationPromptPreview({ providerRole: "coding_agent" });
   await client.getAgentBundle({ providerRole: "coding_agent" });
   await client.getAgentStarterPack({ providerRole: "coding_agent" });
+  await client.getAgentStarterPack({ providerRole: "coding_agent", format: "system-prompt" });
   await client.invokeMany(
     [{ name: "workspace.read", arguments: { path: "README.md" } }],
     { parallel: true, actor: "desktop-ui", sessionId: "desktop-ui" },
@@ -116,6 +117,7 @@ test("protocol client dispatches desktop methods through transport", async () =>
       "conversations.prompt_preview",
       "agents.bundle",
       "agents.starter_pack",
+      "agents.starter_pack",
       "tools.invoke_many",
       "permissions.allow_all_cmd.get",
       "permissions.allow_all_cmd.set",
@@ -133,8 +135,10 @@ test("protocol client dispatches desktop methods through transport", async () =>
   assert.equal(calls[8].params.provider_role, "coding_agent");
   assert.equal(calls[9].params.provider_role, "coding_agent");
   assert.equal(calls[10].params.provider_role, "coding_agent");
-  assert.equal(calls[11].params.parallel, true);
-  assert.equal(calls[13].params.allowed, true);
+  assert.equal(calls[11].params.provider_role, "coding_agent");
+  assert.equal(calls[11].params.format, "system-prompt");
+  assert.equal(calls[12].params.parallel, true);
+  assert.equal(calls[14].params.allowed, true);
 });
 
 test("mock transport supports the current desktop shell flow", async () => {
@@ -275,6 +279,12 @@ test("mock transport supports the current desktop shell flow", async () => {
   const agentStarterPack = await client.getAgentStarterPack({ providerRole: "coding_agent" });
   assert.equal(agentStarterPack.provider_role, "coding_agent");
   assert.match(agentStarterPack.text, /Codex-style tool manifest/);
+  const starterPackPrompt = await client.getAgentStarterPack({
+    providerRole: "coding_agent",
+    format: "system-prompt",
+  });
+  assert.equal(starterPackPrompt.format, "system-prompt");
+  assert.match(starterPackPrompt.content, /Coding agent tool guide/);
   const invoked = await client.invokeMany(
     [{ name: "workspace.read", arguments: { path: "src/demo.js", start_line: 1, end_line: 5 } }],
     { parallel: true, actor: "desktop-ui", sessionId: "desktop-preview" },
@@ -1051,20 +1061,29 @@ test("core session client preserves session id across desktop requests", async (
                       ],
                     }
                 : request.method === "agents.starter_pack"
-                  ? {
-                      provider_role: request.params.provider_role || "coding_agent",
-                      name: "YueAI coding_agent starter pack",
-                      summary: "Copy-ready prompt and tool rules for wiring another coding-agent client.",
-                      starter_prompt: "You are a coding agent attached to the YueAI runtime.",
-                      system_prompt: "System:\nCode carefully\n\nCoding agent tool guide",
-                      codex_manifest: {
+                  ? request.params.format
+                    ? {
                         provider_role: request.params.provider_role || "coding_agent",
-                        tools: [{ name: "workspace_read" }],
-                      },
-                      tool_manifest_json: '{\n  "provider_role": "coding_agent"\n}',
-                      integration_checklist: ["Load the system prompt exactly as provided before the first user turn."],
-                      text: "# YueAI coding_agent starter pack",
-                    }
+                        format: request.params.format,
+                        content:
+                          request.params.format === "system-prompt"
+                            ? "System:\nCode carefully\n\nCoding agent tool guide"
+                            : "# YueAI coding_agent starter pack",
+                      }
+                    : {
+                        provider_role: request.params.provider_role || "coding_agent",
+                        name: "YueAI coding_agent starter pack",
+                        summary: "Copy-ready prompt and tool rules for wiring another coding-agent client.",
+                        starter_prompt: "You are a coding agent attached to the YueAI runtime.",
+                        system_prompt: "System:\nCode carefully\n\nCoding agent tool guide",
+                        codex_manifest: {
+                          provider_role: request.params.provider_role || "coding_agent",
+                          tools: [{ name: "workspace_read" }],
+                        },
+                        tool_manifest_json: '{\n  "provider_role": "coding_agent"\n}',
+                        integration_checklist: ["Load the system prompt exactly as provided before the first user turn."],
+                        text: "# YueAI coding_agent starter pack",
+                      }
                 : request.method === "tools.invoke_many"
                   ? {
                       parallel: request.params.parallel,
@@ -1204,6 +1223,7 @@ test("core session client preserves session id across desktop requests", async (
   await session.getConversationPromptPreview({ providerRole: "coding_agent" });
   await session.getAgentBundle({ providerRole: "coding_agent" });
   await session.getAgentStarterPack({ providerRole: "coding_agent" });
+  await session.getAgentStarterPack({ providerRole: "coding_agent", format: "system-prompt" });
   await session.invokeMany(
     [{ name: "workspace.read", arguments: { path: "README.md" } }],
     { parallel: true },
@@ -1232,11 +1252,14 @@ test("core session client preserves session id across desktop requests", async (
   assert.equal(lines[15].params.provider_role, "coding_agent");
   assert.equal(lines[16].method, "agents.starter_pack");
   assert.equal(lines[16].params.provider_role, "coding_agent");
-  assert.equal(lines[17].method, "tools.invoke_many");
-  assert.equal(lines[17].params.session_id, "desktop-ui");
-  assert.equal(lines[18].method, "permissions.allow_all_cmd.get");
-  assert.equal(lines[19].method, "permissions.allow_all_cmd.set");
-  assert.equal(lines[19].params.allowed, true);
+  assert.equal(lines[17].method, "agents.starter_pack");
+  assert.equal(lines[17].params.provider_role, "coding_agent");
+  assert.equal(lines[17].params.format, "system-prompt");
+  assert.equal(lines[18].method, "tools.invoke_many");
+  assert.equal(lines[18].params.session_id, "desktop-ui");
+  assert.equal(lines[19].method, "permissions.allow_all_cmd.get");
+  assert.equal(lines[20].method, "permissions.allow_all_cmd.set");
+  assert.equal(lines[20].params.allowed, true);
 });
 
 test("core session client forwards events to subscribers", async () => {
