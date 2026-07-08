@@ -215,6 +215,33 @@ export function createMockTransport() {
       "Use approval before proposing or attempting risky actions outside the normal edit flow.",
       "Verify with the smallest command or diff that proves the change.",
     ],
+    execution_rules: {
+      inspect_before_edit: "Read or search the narrowest useful context before any file mutation.",
+      parallel_read_policy: "Parallel tool batches are only for independent read-only calls explicitly marked parallel-safe.",
+      mutation_policy: "Workspace edits, file ops, shell commands, and other state changes stay sequential.",
+      approval_policy: "Ask the user before destructive, irreversible, or high-blast-radius actions outside the normal edit flow.",
+      verification_policy: "End with the smallest real diff, test, or command that proves the requested outcome.",
+    },
+    decision_rules: [
+      {
+        name: "inspect_first",
+        rule: "Inspect current code and docs before planning edits.",
+        why: "Reduces avoidable assumptions and keeps patches aligned with the local codebase.",
+      },
+    ],
+    recipes: [
+      {
+        name: "inspect-and-patch",
+        goal: "Change existing code in a known area with minimal risk.",
+        tool_sequence: ["workspace_search", "workspace_read", "workspace_edit", "git_diff"],
+        steps: [
+          "Locate the likely file or symbol with workspace_search or workspace_grep.",
+          "Read the exact block you intend to change with workspace_read.",
+          "Apply the smallest in-place mutation with workspace_edit.",
+          "Review the resulting patch with git_diff before concluding.",
+        ],
+      },
+    ],
     tools: [
       {
         name: "workspace_read",
@@ -225,6 +252,14 @@ export function createMockTransport() {
         parallel_safe: true,
         mutates_state: false,
         risk: "low",
+        follow_up: "Use workspace_edit or git_diff only after confirming the exact block to change.",
+        preferred_inputs: ["path", "start_line", "end_line"],
+        examples: [
+          {
+            intent: "Read a narrow region around a likely edit",
+            arguments: { path: "src/yue_core/tool_guidance.py", start_line: 1, end_line: 80 },
+          },
+        ],
       },
       {
         name: "workspace_edit",
@@ -235,6 +270,14 @@ export function createMockTransport() {
         parallel_safe: false,
         mutates_state: true,
         risk: "medium",
+        follow_up: "Re-read the edited region or inspect git_diff before continuing.",
+        preferred_inputs: ["path", "old_text", "new_text"],
+        examples: [
+          {
+            intent: "Swap one exact string block after inspection",
+            arguments: { path: "src/yue_core/cli.py", old_text: "old", new_text: "new" },
+          },
+        ],
       },
       {
         name: "shell_run",
@@ -245,9 +288,20 @@ export function createMockTransport() {
         parallel_safe: false,
         mutates_state: true,
         risk: "high",
+        follow_up: "Capture only the smallest command that proves the change, then summarize its real result.",
+        preferred_inputs: ["command", "cwd", "timeout_seconds"],
+        examples: [
+          {
+            intent: "Run targeted transport tests",
+            arguments: { command: "python -m pytest tests/test_transport.py" },
+          },
+        ],
       },
     ],
-    text: "Coding agent tool guide:\n- Start with read-only inspection. Read or search narrowly before editing.",
+    text:
+      "Coding agent tool guide:\n- Start with read-only inspection. Read or search narrowly before editing.\n\n"
+      + "Execution rules:\n- Read or search the narrowest useful context before any file mutation.\n\n"
+      + "Common recipes:\n- inspect-and-patch: Change existing code in a known area with minimal risk. Tools: workspace_search, workspace_read, workspace_edit, git_diff",
   };
   const promptPreview = {
     provider_role: "coding_agent",
@@ -274,6 +328,8 @@ export function createMockTransport() {
       provider_role: "coding_agent",
       system_prompt: promptPreview.system_instruction,
       tool_instructions: toolGuide.workflow,
+      execution_rules: toolGuide.execution_rules,
+      decision_rules: toolGuide.decision_rules,
       approval_rules: {
         profile: "assist",
         interactive_approval: true,
@@ -283,13 +339,18 @@ export function createMockTransport() {
         read_only_parallel_only: true,
         writes_and_shell_sequential: true,
       },
+      recipes: toolGuide.recipes,
       tools: toolGuide.tools.map((item) => ({
         name: item.name,
+        summary: item.summary,
         when_to_use: item.when_to_use,
         avoid_when: item.avoid_when,
+        follow_up: item.follow_up,
+        preferred_inputs: item.preferred_inputs,
         parallel_safe: item.parallel_safe,
         mutates_state: item.mutates_state,
         risk: item.risk,
+        examples: item.examples,
       })),
     },
     tools: toolCatalog,
@@ -313,7 +374,7 @@ export function createMockTransport() {
     text:
       "# YueAI coding_agent starter pack\n\nUse this pack when wiring another agent client to the YueAI runtime.\n\n## Starter prompt\n```text\nYou are a coding agent attached to the YueAI runtime.\nFollow the system prompt and tool manifest below.\nDo not rename tools, widen permissions, or parallelize state-changing actions.\nWhen uncertain, inspect first and ask the user before destructive or ambiguous steps.\n```\n\n## Runtime system prompt\n```text\n"
       + promptPreview.system_instruction
-      + "\n```\n\n## Integration checklist\n- Load the system prompt exactly as provided before the first user turn.\n- Register tools with the exact filtered names from the manifest.\n- Treat read-only tools as the only safe parallel batch; keep writes and shell actions sequential.\n- Preserve approval boundaries from the manifest before any risky action.\n- Prefer inspect -> edit -> verify, and ask the user when intent or blast radius is unclear.\n\n## Codex-style tool manifest\n```json\n"
+      + "\n```\n\n## Integration checklist\n- Load the system prompt exactly as provided before the first user turn.\n- Register tools with the exact filtered names from the manifest.\n- Treat read-only tools as the only safe parallel batch; keep writes and shell actions sequential.\n- Preserve approval boundaries from the manifest before any risky action.\n- Prefer inspect -> edit -> verify, and ask the user when intent or blast radius is unclear.\n\n## Common tool recipes\n- inspect-and-patch: Change existing code in a known area with minimal risk. Tools: workspace_search, workspace_read, workspace_edit, git_diff\n\n## Codex-style tool manifest\n```json\n"
       + JSON.stringify(agentBundle.codex_manifest, null, 2)
       + "\n```",
   };

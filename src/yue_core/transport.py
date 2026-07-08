@@ -10,7 +10,7 @@ from .app import YueCore
 from .agent_exports import AGENT_STARTER_PACK_FORMATS, render_agent_starter_pack_output
 from .contracts import CoreEvent, PermissionOutcome
 from .tool_catalog import filter_tool_specs_for_role
-from .tool_guidance import build_tool_guide, render_tool_guide_text
+from .tool_guidance import build_tool_guide
 
 
 class JsonLineServer:
@@ -98,10 +98,6 @@ class JsonLineServer:
                     str(provider_role) if provider_role is not None else None,
                 )
                 payload = build_tool_guide(
-                    specs,
-                    provider_role=str(provider_role) if provider_role is not None else None,
-                )
-                payload["text"] = render_tool_guide_text(
                     specs,
                     provider_role=str(provider_role) if provider_role is not None else None,
                 )

@@ -176,11 +176,23 @@ Desktop shell UI
     - `tool.*`
   - `tools.list` gio tra ca `model_description` ngoai `description` de agent client nhan du hint ve scrub/parallel/risk contract.
   - `tools.guide` tra them 1 playbook co cau truc cho agent client, tap trung vao workflow inspect/edit/verify va rule "khi nao dung / khi nao tranh" cho tool surface uu tien.
+  - `tools.guide` gio con kem them:
+    - `execution_rules`
+    - `decision_rules`
+    - `recipes`
+    - `follow_up` / `preferred_inputs` / `examples` theo tung tool
+  - CLI gio co `export-tool-guide` de xuat playbook runtime nay ra text hoac JSON cho client agent khac.
   - `agents.bundle` gom route/provider role, active provider snapshot, runtime prompt preview, tool playbook, va filtered tool catalog thanh 1 payload copy/export duoc cho agent client khac.
   - `agents.bundle` gio con kem `codex_manifest`: ban rut gon de feed sang agent client theo style Codex, gom system prompt, workflow, approval/parallellism rules, va tool rules da filter.
+  - `codex_manifest` gio con nhung lop machine-readable hon cho integration:
+    - `execution_rules`
+    - `decision_rules`
+    - `recipes`
+    - tool-level `summary`, `follow_up`, `preferred_inputs`, `examples`
   - `agents.starter_pack` build tren cung source-of-truth do, nhung tra them payload copy-ready cho nguoi/agent client: starter prompt, integration checklist, va 1 blob markdown de paste thang.
   - CLI gio co `export-agent-starter-pack` de xuat payload nay truc tiep tu terminal ma khong can mo desktop shell.
   - CLI format hien co gom ca full pack va focused slices: `manifest-json`, `system-prompt`, `starter-prompt`, `checklist`.
+  - starter pack markdown gio co them muc `Common tool recipes` de human/operator copy nhanh workflow dung tool.
   - `tools.list` cung nhan `provider_role` tuy chon de lay dung tool catalog da duoc policy filter cho `coding_agent`; role nay hien uu tien alias underscore, con ten dotted legacy van duoc giu cho transport/UI flow cu.
 
 - `src/yue_core/openai_compat.py`

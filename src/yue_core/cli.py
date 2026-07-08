@@ -10,6 +10,8 @@ from pathlib import Path
 from .agent_exports import AGENT_STARTER_PACK_FORMATS, render_agent_starter_pack_output
 from .app import YueCore
 from .config import load_settings
+from .tool_guidance import TOOL_GUIDE_FORMATS, build_tool_guide, render_tool_guide_output
+from .tool_catalog import filter_tool_specs_for_role
 from .desktop_demo import launch_tk_desktop_demo, run_desktop_headless_smoke_test
 from .transport import JsonLineServer
 from .version import VERSION
@@ -34,6 +36,19 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("doctor")
     subparsers.add_parser("list-tools")
+    export_tool_guide = subparsers.add_parser("export-tool-guide")
+    export_tool_guide.add_argument("--provider-role", default="coding_agent")
+    export_tool_guide.add_argument(
+        "--format",
+        choices=TOOL_GUIDE_FORMATS,
+        default="text",
+        help="Export the runtime tool playbook as text or full JSON",
+    )
+    export_tool_guide.add_argument(
+        "--output",
+        type=Path,
+        help="Write the export to a UTF-8 file instead of stdout",
+    )
     export_agent_starter_pack = subparsers.add_parser("export-agent-starter-pack")
     export_agent_starter_pack.add_argument("--provider-role", default="coding_agent")
     export_agent_starter_pack.add_argument(
@@ -119,6 +134,21 @@ async def run(args: argparse.Namespace) -> int:
         if args.command == "list-tools":
             for spec in core.registry.list_specs():
                 print(f"{spec.name}\t{spec.capability.value}\t{spec.risk.value}")
+            return 0
+        if args.command == "export-tool-guide":
+            tool_specs = filter_tool_specs_for_role(
+                core.registry.list_specs(),
+                args.provider_role,
+            )
+            payload = build_tool_guide(tool_specs, provider_role=args.provider_role)
+            output_text = render_tool_guide_output(payload, args.format)
+            if args.output is not None:
+                args.output.write_text(
+                    output_text + ("" if output_text.endswith("\n") else "\n"),
+                    encoding="utf-8",
+                )
+            else:
+                _write_stdout_text(output_text)
             return 0
         if args.command == "export-agent-starter-pack":
             payload = core.agent_starter_pack(args.provider_role)

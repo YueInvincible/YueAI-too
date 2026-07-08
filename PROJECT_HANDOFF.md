@@ -170,6 +170,12 @@ Chi giu 3 thu:
   - user/ui van co the di qua luong approval neu runtime bat interactive approval.
 - Default `coding_agent` prompt profile da co tool guidance mac dinh de model biet uu tien inspect/edit/verify flow.
 - Runtime gio da co them tool guide runtime-generated cho `coding_agent`, noi truc tiep vao system instruction va expose qua JSONL method `tools.guide`, de prompt/tool catalog/client docs cung mot source-of-truth.
+- `tools.guide` gio da duoc nang thanh contract giau hon cho agent client:
+  - `execution_rules`
+  - `decision_rules`
+  - `recipes`
+  - tool-level `follow_up`, `preferred_inputs`, `examples`
+- CLI gio co them `export-tool-guide` de xuat playbook runtime-generated nay ra text/JSON, khong can di qua desktop shell.
 - Tool result dua nguoc vao conversation tool-loop da co payload co cau truc hon:
   - `request_id`
   - `tool_name`
@@ -201,6 +207,7 @@ Chi giu 3 thu:
   - render + copy duoc `agent bundle` gom route/provider/prompt/tool-playbook/tool-catalog cho `coding_agent`;
   - render + copy duoc `codex manifest` rut gon trich tu `agent bundle`, gom system prompt + workflow + approval/parallellism/tool rules cho client agent khac;
   - render + copy duoc `agent starter pack` co san prompt + checklist + manifest markdown cho client agent khac;
+  - starter pack markdown gio co them `Common tool recipes` rut ra tu tool guide de de wire agent client theo workflow dung tool;
   - CLI gio co `export-agent-starter-pack` de xuat starter pack truc tiep ra stdout/file, hoac cat rieng `manifest-json` / `system-prompt` / `starter-prompt` / `checklist`;
   - hien ket qua batch inspect theo tung tool call thay vi chi dump vao message log.
 - Desktop shell UI da duoc doi sang chat-first shell ro hon:

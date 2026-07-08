@@ -59,6 +59,9 @@ CLI export proof:
 
 ```powershell
 $env:PYTHONPATH = "src"
+python -m yue_core export-tool-guide --provider-role coding_agent
+python -m yue_core export-tool-guide --provider-role coding_agent --format json
+python -m yue_core export-tool-guide --provider-role coding_agent --output .test-runtime\coding-agent-tool-guide.md
 python -m yue_core export-agent-starter-pack --provider-role coding_agent
 python -m yue_core export-agent-starter-pack --provider-role coding_agent --format json
 python -m yue_core export-agent-starter-pack --provider-role coding_agent --format manifest-json
@@ -69,7 +72,11 @@ python -m yue_core export-agent-starter-pack --provider-role coding_agent --outp
 
 Expected:
 
+- `export-tool-guide` text mode in ra playbook co `Execution rules` va `Common recipes`;
+- `export-tool-guide --format json` in ra payload co `execution_rules`, `decision_rules`, `recipes`, va tool-level examples;
+- `export-tool-guide --output ...` ghi file UTF-8 dung voi noi dung tool playbook;
 - text mode in ra markdown starter pack co `Starter prompt` va `Codex-style tool manifest`;
+- starter pack text mode gio co them `Common tool recipes`;
 - json mode in ra payload co `starter_prompt`, `system_prompt`, `codex_manifest`;
 - `manifest-json` chi in JSON tool manifest rut gon;
 - `system-prompt` chi in runtime system prompt hoan chinh;

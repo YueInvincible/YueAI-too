@@ -168,7 +168,17 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("workspace_edit", tool_names)
         self.assertIn("shell_run", tool_names)
         self.assertIn("ask_user_approval", tool_names)
+        self.assertIn("execution_rules", response["result"])
+        self.assertGreater(len(response["result"]["decision_rules"]), 0)
+        self.assertGreater(len(response["result"]["recipes"]), 0)
+        workspace_read = next(
+            item for item in response["result"]["tools"] if item["name"] == "workspace_read"
+        )
+        self.assertIn("follow_up", workspace_read)
+        self.assertIn("preferred_inputs", workspace_read)
+        self.assertGreater(len(workspace_read["examples"]), 0)
         self.assertIn("Coding agent tool guide:", response["result"]["text"])
+        self.assertIn("Execution rules:", response["result"]["text"])
         self.assertIn("workspace_read:", response["result"]["text"])
 
     async def test_prompt_preview_returns_runtime_system_instruction(self):
@@ -221,6 +231,8 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("codex_manifest", bundle)
         self.assertEqual(bundle["codex_manifest"]["provider_role"], "coding_agent")
         self.assertIn("system_prompt", bundle["codex_manifest"])
+        self.assertIn("execution_rules", bundle["codex_manifest"])
+        self.assertGreater(len(bundle["codex_manifest"]["recipes"]), 0)
         self.assertGreater(len(bundle["codex_manifest"]["tools"]), 0)
         tool_names = {item["name"] for item in bundle["tools"]}
         self.assertIn("workspace_read", tool_names)
@@ -250,7 +262,9 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("codex_manifest", pack)
         self.assertIn("integration_checklist", pack)
         self.assertGreater(len(pack["integration_checklist"]), 0)
+        self.assertIn("recipes", pack["codex_manifest"])
         self.assertIn("# YueAI coding_agent starter pack", pack["text"])
+        self.assertIn("## Common tool recipes", pack["text"])
         self.assertIn("## Codex-style tool manifest", pack["text"])
 
     async def test_agent_starter_pack_can_return_focused_format_slice(self):

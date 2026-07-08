@@ -337,11 +337,15 @@ class YueCore:
         tool_rules = [
             {
                 "name": item["name"],
+                "summary": item["summary"],
                 "when_to_use": item["when_to_use"],
                 "avoid_when": item["avoid_when"],
+                "follow_up": item["follow_up"],
+                "preferred_inputs": list(item["preferred_inputs"]),
                 "parallel_safe": item["parallel_safe"],
                 "mutates_state": item["mutates_state"],
                 "risk": item["risk"],
+                "examples": [dict(example) for example in item["examples"]],
             }
             for item in tool_guide["tools"]
         ]
@@ -349,6 +353,8 @@ class YueCore:
             "provider_role": provider_role,
             "system_prompt": prompt_preview["system_instruction"],
             "tool_instructions": tool_guide["workflow"],
+            "execution_rules": dict(tool_guide["execution_rules"]),
+            "decision_rules": [dict(item) for item in tool_guide["decision_rules"]],
             "approval_rules": {
                 "profile": self.settings.permissions.profile,
                 "interactive_approval": self.settings.permissions.interactive_approval,
@@ -358,6 +364,7 @@ class YueCore:
                 "read_only_parallel_only": True,
                 "writes_and_shell_sequential": True,
             },
+            "recipes": [dict(item) for item in tool_guide["recipes"]],
             "tools": tool_rules,
         }
         return {
@@ -422,6 +429,12 @@ class YueCore:
                 "",
                 "## Integration checklist",
                 *[f"- {item}" for item in integration_checklist],
+                "",
+                "## Common tool recipes",
+                *[
+                    f"- {item['name']}: {item['goal']} Tools: {', '.join(item['tool_sequence'])}"
+                    for item in codex_manifest["recipes"]
+                ],
                 "",
                 "## Codex-style tool manifest",
                 "```json",
