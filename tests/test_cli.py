@@ -1,9 +1,12 @@
 import io
+import json
 import sys
 import unittest
+from argparse import Namespace
 from unittest.mock import patch
 
-from yue_core.cli import _write_stdout_text
+from tests.support import workspace_temp_dir
+from yue_core.cli import _write_stdout_text, run
 
 
 class CliTests(unittest.TestCase):
@@ -14,6 +17,51 @@ class CliTests(unittest.TestCase):
             _write_stdout_text("Dạ, em đây")
             stdout.flush()
         self.assertEqual(buffer.getvalue(), "Dạ, em đây\n".encode("utf-8"))
+
+    def test_export_agent_starter_pack_writes_text_file(self):
+        with workspace_temp_dir() as temp:
+            output_path = temp / "starter-pack.md"
+            exit_code = self._run_async(
+                run(
+                    Namespace(
+                        config=None,
+                        command="export-agent-starter-pack",
+                        provider_role="coding_agent",
+                        format="text",
+                        output=output_path,
+                    )
+                )
+            )
+            self.assertEqual(exit_code, 0)
+            content = output_path.read_text(encoding="utf-8")
+            self.assertIn("# YueAI coding_agent starter pack", content)
+            self.assertIn("## Codex-style tool manifest", content)
+
+    def test_export_agent_starter_pack_writes_json_stdout(self):
+        buffer = io.StringIO()
+        with patch.object(sys, "stdout", buffer):
+            exit_code = self._run_async(
+                run(
+                    Namespace(
+                        config=None,
+                        command="export-agent-starter-pack",
+                        provider_role="coding_agent",
+                        format="json",
+                        output=None,
+                    )
+                )
+            )
+        self.assertEqual(exit_code, 0)
+        payload = json.loads(buffer.getvalue())
+        self.assertEqual(payload["provider_role"], "coding_agent")
+        self.assertIn("starter_prompt", payload)
+        self.assertIn("codex_manifest", payload)
+
+    @staticmethod
+    def _run_async(coro):
+        import asyncio
+
+        return asyncio.run(coro)
 
 
 if __name__ == "__main__":

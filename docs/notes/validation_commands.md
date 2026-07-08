@@ -55,6 +55,21 @@ Expected:
 
 - 48 tests pass.
 
+CLI export proof:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m yue_core export-agent-starter-pack --provider-role coding_agent
+python -m yue_core export-agent-starter-pack --provider-role coding_agent --format json
+python -m yue_core export-agent-starter-pack --provider-role coding_agent --output .test-runtime\coding-agent-starter-pack.md
+```
+
+Expected:
+
+- text mode in ra markdown starter pack co `Starter prompt` va `Codex-style tool manifest`;
+- json mode in ra payload co `starter_prompt`, `system_prompt`, `codex_manifest`;
+- `--output` ghi file UTF-8 dung voi noi dung starter pack.
+
 ## Native Rust
 
 ```powershell

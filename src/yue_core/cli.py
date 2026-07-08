@@ -34,6 +34,19 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("doctor")
     subparsers.add_parser("list-tools")
+    export_agent_starter_pack = subparsers.add_parser("export-agent-starter-pack")
+    export_agent_starter_pack.add_argument("--provider-role", default="coding_agent")
+    export_agent_starter_pack.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output the copy-ready text pack or the full JSON payload",
+    )
+    export_agent_starter_pack.add_argument(
+        "--output",
+        type=Path,
+        help="Write the export to a UTF-8 file instead of stdout",
+    )
     invoke = subparsers.add_parser("invoke")
     invoke.add_argument("tool")
     argument_source = invoke.add_mutually_exclusive_group()
@@ -106,6 +119,21 @@ async def run(args: argparse.Namespace) -> int:
         if args.command == "list-tools":
             for spec in core.registry.list_specs():
                 print(f"{spec.name}\t{spec.capability.value}\t{spec.risk.value}")
+            return 0
+        if args.command == "export-agent-starter-pack":
+            payload = core.agent_starter_pack(args.provider_role)
+            output_text = (
+                json.dumps(payload, ensure_ascii=False, indent=2)
+                if args.format == "json"
+                else payload["text"]
+            )
+            if args.output is not None:
+                args.output.write_text(
+                    output_text + ("" if output_text.endswith("\n") else "\n"),
+                    encoding="utf-8",
+                )
+            else:
+                _write_stdout_text(output_text)
             return 0
         if args.command == "providers-health":
             print(json.dumps(await core.providers.health(), ensure_ascii=False, indent=2))
