@@ -171,6 +171,29 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Coding agent tool guide:", response["result"]["text"])
         self.assertIn("workspace_read:", response["result"]["text"])
 
+    async def test_prompt_preview_returns_runtime_system_instruction(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            core = YueCore(settings)
+            server = JsonLineServer(core)
+            async with core:
+                response = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "prompt-preview",
+                            "method": "conversations.prompt_preview",
+                            "params": {"provider_role": "coding_agent"},
+                        }
+                    )
+                )
+        self.assertTrue(response["ok"])
+        self.assertEqual(response["result"]["provider_role"], "coding_agent")
+        self.assertEqual(response["result"]["prompt_profile"], "coding_agent")
+        self.assertIn("Inspect relevant files before editing.", response["result"]["system_instruction"])
+        self.assertIn("Coding agent tool guide:", response["result"]["system_instruction"])
+        self.assertGreater(response["result"]["tool_count"], 0)
+
     async def test_conversation_round_trip(self):
         with workspace_temp_dir() as temp:
             settings = Settings()

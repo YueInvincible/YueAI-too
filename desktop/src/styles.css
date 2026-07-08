@@ -1104,6 +1104,10 @@ select.message-input {
   line-height: 1.45;
 }
 
+.tool-guide-preview {
+  margin: 0;
+}
+
 .message-group,
 .run-inspector-group {
   display: grid;

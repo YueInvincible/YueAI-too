@@ -249,6 +249,13 @@ export function createMockTransport() {
     ],
     text: "Coding agent tool guide:\n- Start with read-only inspection. Read or search narrowly before editing.",
   };
+  const promptPreview = {
+    provider_role: "coding_agent",
+    prompt_profile: "coding_agent",
+    system_instruction:
+      "System:\nYou are responsible for implementing code changes safely and validating them with real checks.\n\nTool usage:\nInspect relevant files before editing.\n\nCoding agent tool guide:\n- Start with read-only inspection.",
+    tool_count: 3,
+  };
 
   return {
     async request({ method, params }) {
@@ -492,6 +499,8 @@ export function createMockTransport() {
         case "conversations.create":
           conversationCounter += 1;
           return { id: `mock-conversation-${conversationCounter}` };
+        case "conversations.prompt_preview":
+          return JSON.parse(JSON.stringify(promptPreview));
         case "conversations.send":
           return {
             run_id: `mock-run-${conversationCounter}`,

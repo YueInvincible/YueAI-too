@@ -111,6 +111,10 @@ export class CoreSessionClient {
     return this.client.createConversation(title);
   }
 
+  async getConversationPromptPreview(options = {}) {
+    return this.client.getConversationPromptPreview(options);
+  }
+
   async sendConversationMessage(conversationId, content, provider) {
     return this.client.sendConversationMessage(conversationId, content, provider);
   }

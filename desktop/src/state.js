@@ -40,6 +40,8 @@ export function defaultDesktopViewState() {
     toolCatalogStatus: "Tool catalog unavailable",
     toolGuide: null,
     toolGuideStatus: "Tool playbook unavailable",
+    promptPreview: null,
+    promptPreviewStatus: "Runtime prompt unavailable",
     allowAllCmd: false,
     allowAllCmdUpdatedBy: "none",
     allowAllCmdStatus: "Session shell grant disabled",
@@ -374,6 +376,25 @@ export function applyToolGuideStatus(state, toolGuideStatus) {
   return {
     ...state,
     toolGuideStatus: toolGuideStatus || state.toolGuideStatus,
+  };
+}
+
+export function applyPromptPreview(state, promptPreview) {
+  const nextPreview = promptPreview ? JSON.parse(JSON.stringify(promptPreview)) : null;
+  const hasInstruction = Boolean(nextPreview?.system_instruction);
+  return {
+    ...state,
+    promptPreview: nextPreview,
+    promptPreviewStatus: hasInstruction
+      ? `Runtime prompt ready for ${nextPreview.provider_role || "chat"}`
+      : "Runtime prompt unavailable",
+  };
+}
+
+export function applyPromptPreviewStatus(state, promptPreviewStatus) {
+  return {
+    ...state,
+    promptPreviewStatus: promptPreviewStatus || state.promptPreviewStatus,
   };
 }
 

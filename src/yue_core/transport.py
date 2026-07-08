@@ -266,6 +266,10 @@ class JsonLineServer:
                     limit=params.get("limit"),
                 )
                 payload = [message.to_dict() for message in messages]
+            elif method == "conversations.prompt_preview":
+                payload = self.core.conversations.prompt_preview(
+                    str(params.get("provider_role", "chat"))
+                )
             elif method == "conversations.send":
                 run_id = params.get("run_id") or str(uuid4())
                 message = await self.core.conversations.send(

@@ -782,6 +782,14 @@ class ConversationOrchestrator:
     def _model_tools(self, provider_role: str):
         return filter_tool_specs_for_role(self.tools.list_specs(), provider_role)
 
+    def prompt_preview(self, provider_role: str = "chat") -> dict[str, Any]:
+        return {
+            "provider_role": provider_role,
+            "prompt_profile": self.resolve_prompt_profile(provider_role),
+            "system_instruction": self._system_instruction(provider_role),
+            "tool_count": len(self._model_tools(provider_role)),
+        }
+
     def resolve_provider(
         self,
         *,

@@ -95,6 +95,7 @@ Desktop shell UI
     - session `allow-all-cmd`;
     - tool contract badges/notes;
     - tool playbook runtime-generated cho `coding_agent`;
+    - runtime prompt preview co the copy duoc cho `coding_agent`;
     - parallel inspect ket qua theo tung call.
   - can nho: runtime shell moi nhat dang di truoc o `runtime.js`; neu sua desktop behavior, phai check drift.
 
@@ -105,6 +106,7 @@ Desktop shell UI
     - `Ops` va `Config` drawer;
     - provider health/tool contract da duoc dua vao `Ops`;
     - tool playbook runtime-generated cung da duoc dua vao `Ops`;
+    - runtime prompt preview va copy action cung da duoc dua vao `Ops`;
     - khung chat frame co dinh, khong con che do `Focus chat`.
     - active provider co them runtime readiness strip + nut `Refresh runtime`.
   - bat buoc giu dong bo logic voi `app.js` hoac ghi ro cho note neu runtime path di truoc.
@@ -447,6 +449,7 @@ Frontend methods trong `protocol.js`:
 - `listTools`
 - frontend module hien chua can wrapper rieng cho `tools.guide`, nhung JSONL method nay da co san neu desktop/agent client muon render tool playbook runtime-generated.
 - desktop shell gio da goi `tools.guide` luc bootstrap cho role `coding_agent` va render playbook nay trong `Ops`.
+- desktop shell gio cung goi `conversations.prompt_preview` cho role `coding_agent`, de user copy duoc system instruction runtime that thay vi doan tu editor.
 - `invokeMany`
 - `getAllowAllCmd`
 - `setAllowAllCmd`

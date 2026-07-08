@@ -15,6 +15,8 @@ import {
   applyParallelInspectStatus,
   applyParallelInspectResults,
   applyPendingApprovals,
+  applyPromptPreview,
+  applyPromptPreviewStatus,
   applyCoreEvent,
   applyDesktopSnapshot,
   applyProviderNames,
@@ -118,6 +120,10 @@ const toolCatalogList = document.querySelector("#tool-catalog-list");
 const toolGuideStatusLine = document.querySelector("#tool-guide-status-line");
 const toolGuideWorkflowList = document.querySelector("#tool-guide-workflow-list");
 const toolGuideList = document.querySelector("#tool-guide-list");
+const toolGuideCopyButton = document.querySelector("#tool-guide-copy-button");
+const promptPreviewCopyButton = document.querySelector("#prompt-preview-copy-button");
+const promptPreviewStatusLine = document.querySelector("#prompt-preview-status-line");
+const promptPreviewContent = document.querySelector("#prompt-preview-content");
 const defaultProviderInput = document.querySelector("#default-provider-input");
 const chatProviderInput = document.querySelector("#chat-provider-input");
 const chatProfileInput = document.querySelector("#chat-profile-input");
@@ -255,6 +261,7 @@ function render() {
   parallelInspectStatusLine.textContent = state.parallelInspectStatus;
   toolCatalogStatusLine.textContent = state.toolCatalogStatus;
   toolGuideStatusLine.textContent = state.toolGuideStatus;
+  promptPreviewStatusLine.textContent = state.promptPreviewStatus;
   allowAllCmdToggle.checked = Boolean(state.allowAllCmd);
   bridgeLine.title = state.bridgeLastError || state.bridgeNote;
   consolePanel.classList.toggle("hidden", !state.consoleOpen);
@@ -482,6 +489,8 @@ function render() {
     row.append(head, summary, whenToUse, avoidWhen);
     toolGuideList.append(row);
   }
+  promptPreviewContent.textContent =
+    state.promptPreview?.system_instruction || "Runtime prompt unavailable.";
 
   parallelInspectResults.replaceChildren();
   for (const item of state.parallelInspectResults) {
@@ -988,11 +997,7 @@ function renderRunGroupSummary(group) {
 
 async function copyRunPayload(text, successStatus) {
   try {
-    if (navigator?.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-    } else {
-      fallbackCopyText(text);
-    }
+    await writeClipboardText(text);
     state = applyToolActivityStatus(state, successStatus);
   } catch (error) {
     state = applyToolActivityStatus(
@@ -1001,6 +1006,27 @@ async function copyRunPayload(text, successStatus) {
     );
   }
   render();
+}
+
+async function copyToolingPayload(text, successStatus, failurePrefix) {
+  try {
+    await writeClipboardText(text);
+    state = applyPromptPreviewStatus(state, successStatus);
+  } catch (error) {
+    state = applyPromptPreviewStatus(
+      state,
+      `${failurePrefix}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  render();
+}
+
+async function writeClipboardText(text) {
+  if (navigator?.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  fallbackCopyText(text);
 }
 
 function fallbackCopyText(text) {
@@ -1328,6 +1354,7 @@ async function bootstrap() {
   state = applyToolActivitySnapshot(state, await client.getToolActivitySnapshot());
   state = applyToolsCatalog(state, await client.listTools());
   state = applyToolGuide(state, await client.getToolsGuide({ providerRole: "coding_agent" }));
+  state = applyPromptPreview(state, await client.getConversationPromptPreview({ providerRole: "coding_agent" }));
   state = applyAllowAllCmdGrant(state, await client.getAllowAllCmd(sessionId));
   if (bridgeCommands) {
     pendingRuntimeInfo = await bridgeCommands.runtimeInfo();
@@ -1928,6 +1955,26 @@ allowAllCmdToggle.addEventListener("change", async () => {
 parallelInspectForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   await submitParallelInspect();
+});
+
+toolGuideCopyButton?.addEventListener("click", async () => {
+  const text = state.toolGuide?.text || "";
+  if (!text) {
+    state = applyToolGuideStatus(state, "Tool playbook unavailable");
+    render();
+    return;
+  }
+  await copyToolingPayload(text, "Copied tool playbook", "Copy playbook failed");
+});
+
+promptPreviewCopyButton?.addEventListener("click", async () => {
+  const text = state.promptPreview?.system_instruction || "";
+  if (!text) {
+    state = applyPromptPreviewStatus(state, "Runtime prompt unavailable");
+    render();
+    return;
+  }
+  await copyToolingPayload(text, "Copied runtime prompt", "Copy runtime prompt failed");
 });
 
 window.addEventListener("beforeunload", async () => {

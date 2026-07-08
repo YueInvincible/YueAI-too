@@ -94,6 +94,12 @@ export class CoreProtocolClient {
     return this.#request("conversations.create", { title });
   }
 
+  getConversationPromptPreview(options = {}) {
+    return this.#request("conversations.prompt_preview", {
+      provider_role: options.providerRole || "chat",
+    });
+  }
+
   sendConversationMessage(conversationId, content, provider) {
     const params = { conversation_id: conversationId, content };
     if (provider) {
