@@ -473,6 +473,169 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(response["ok"])
         self.assertIn("observe profile cannot change allow-all-cmd", response["error"])
 
+    async def test_capability_grant_round_trip_allows_model_shell(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            settings.permissions.profile = "assist"
+            core = YueCore(settings)
+            server = JsonLineServer(core)
+            async with core:
+                updated = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "grant",
+                            "method": "permissions.capability_grants.set",
+                            "params": {
+                                "session_id": "conversation-1",
+                                "capability": "shell.execute",
+                                "resource": "*",
+                                "allowed": True,
+                                "lifetime": "session",
+                                "actor": "ui",
+                            },
+                        }
+                    )
+                )
+                current = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "get",
+                            "method": "permissions.capability_grants.get",
+                            "params": {"session_id": "conversation-1"},
+                        }
+                    )
+                )
+                invoke = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "invoke",
+                            "method": "tools.invoke",
+                            "params": {
+                                "name": "shell.run",
+                                "arguments": {
+                                    "command": "echo hi",
+                                    "dry_run": True,
+                                },
+                                "actor": "model",
+                                "session_id": "conversation-1",
+                            },
+                        }
+                    )
+                )
+        self.assertTrue(updated["ok"])
+        self.assertTrue(current["ok"])
+        self.assertEqual(
+            current["result"]["capability_grants"][0]["capability"],
+            "shell.execute",
+        )
+        self.assertTrue(invoke["ok"])
+        self.assertEqual(invoke["result"]["status"], "succeeded")
+
+    async def test_capability_grant_revoke_round_trip(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            settings.permissions.profile = "assist"
+            core = YueCore(settings)
+            server = JsonLineServer(core)
+            async with core:
+                updated = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "grant",
+                            "method": "permissions.capability_grants.set",
+                            "params": {
+                                "session_id": "conversation-1",
+                                "capability": "shell.execute",
+                                "resource": "*",
+                                "allowed": True,
+                                "lifetime": "once",
+                                "actor": "ui",
+                            },
+                        }
+                    )
+                )
+                grant_id = updated["result"]["capability_grants"][0]["id"]
+                revoked = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "revoke",
+                            "method": "permissions.capability_grants.revoke",
+                            "params": {
+                                "session_id": "conversation-1",
+                                "grant_id": grant_id,
+                                "actor": "ui",
+                            },
+                        }
+                    )
+                )
+                invoke = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "invoke",
+                            "method": "tools.invoke",
+                            "params": {
+                                "name": "shell.run",
+                                "arguments": {
+                                    "command": "echo hi",
+                                    "dry_run": True,
+                                },
+                                "actor": "model",
+                                "session_id": "conversation-1",
+                            },
+                        }
+                    )
+                )
+                activity = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "activity",
+                            "method": "tool.activity.snapshot",
+                        }
+                    )
+                )
+        self.assertTrue(updated["ok"])
+        self.assertTrue(revoked["ok"])
+        self.assertEqual(revoked["result"]["capability_grants"], [])
+        self.assertTrue(invoke["ok"])
+        self.assertEqual(invoke["result"]["status"], "denied")
+        self.assertEqual(
+            invoke["result"]["metadata"]["permission"]["denial_category"],
+            "denied_by_missing_scope",
+        )
+        self.assertEqual(
+            invoke["result"]["metadata"]["permission"]["resource_scope"]["kind"],
+            "shell.cwd",
+        )
+        self.assertEqual(activity["result"]["items"][0]["status"], "denied_by_missing_scope")
+
+    async def test_capability_grant_rejects_model_actor(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            settings.permissions.profile = "assist"
+            core = YueCore(settings)
+            server = JsonLineServer(core)
+            async with core:
+                response = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "deny-model",
+                            "method": "permissions.capability_grants.set",
+                            "params": {
+                                "session_id": "conversation-1",
+                                "capability": "shell.execute",
+                                "resource": "*",
+                                "allowed": True,
+                                "actor": "model",
+                            },
+                        }
+                    )
+                )
+        self.assertFalse(response["ok"])
+        self.assertIn("model actor cannot change capability", response["error"])
+
     async def test_pending_approval_bridge_round_trip(self):
         with workspace_temp_dir() as temp:
             settings = Settings()

@@ -91,12 +91,38 @@ test("protocol client dispatches desktop methods through transport", async () =>
   await client.getAgentBundle({ providerRole: "coding_agent" });
   await client.getAgentStarterPack({ providerRole: "coding_agent" });
   await client.getAgentStarterPack({ providerRole: "coding_agent", format: "system-prompt" });
+  await client.startAgentRun("Refactor core", {
+    runId: "agent-run-1",
+    providerRole: "coding_agent",
+    plan: ["inspect"],
+    metadata: { surface: "test" },
+  });
+  await client.getAgentRun("agent-run-1");
+  await client.listAgentRuns({ limit: 5 });
+  await client.updateAgentRunChecklist("agent-run-1", [
+    { id: "inspect", text: "Inspect files", status: "completed" },
+  ]);
+  await client.updateAgentRunVerification("agent-run-1", {
+    status: "passed",
+    summary: "Protocol test passed",
+  });
   await client.invokeMany(
     [{ name: "workspace.read", arguments: { path: "README.md" } }],
     { parallel: true, actor: "desktop-ui", sessionId: "desktop-ui" },
   );
   await client.getAllowAllCmd("desktop-ui");
   await client.setAllowAllCmd("desktop-ui", true);
+  await client.getCapabilityGrants("desktop-ui");
+  await client.setCapabilityGrant("desktop-ui", "shell.execute", {
+    resource: "*",
+    allowed: true,
+    lifetime: "run",
+    scopeId: "agent-run-1",
+  });
+  await client.revokeCapabilityGrant("desktop-ui", {
+    capability: "shell.execute",
+    resource: "*",
+  });
   await client.getActiveProviderSettings();
   await client.getActiveProviderCatalog({ provider: { kind: "llama.cpp" } });
   await client.updateActiveProviderSettings({ provider: { kind: "llama.cpp", provider_name: "localhost.chat", model: "Qwen3-4B-Q5_K_M.gguf" } });
@@ -118,9 +144,17 @@ test("protocol client dispatches desktop methods through transport", async () =>
       "agents.bundle",
       "agents.starter_pack",
       "agents.starter_pack",
+      "agents.runs.start",
+      "agents.runs.get",
+      "agents.runs.list",
+      "agents.runs.checklist.update",
+      "agents.runs.verification.update",
       "tools.invoke_many",
       "permissions.allow_all_cmd.get",
       "permissions.allow_all_cmd.set",
+      "permissions.capability_grants.get",
+      "permissions.capability_grants.set",
+      "permissions.capability_grants.revoke",
       "settings.providers.active.get",
       "settings.providers.active.catalog",
       "settings.providers.active.update",
@@ -137,8 +171,20 @@ test("protocol client dispatches desktop methods through transport", async () =>
   assert.equal(calls[10].params.provider_role, "coding_agent");
   assert.equal(calls[11].params.provider_role, "coding_agent");
   assert.equal(calls[11].params.format, "system-prompt");
-  assert.equal(calls[12].params.parallel, true);
-  assert.equal(calls[14].params.allowed, true);
+  assert.equal(calls[12].params.user_request, "Refactor core");
+  assert.equal(calls[12].params.run_id, "agent-run-1");
+  assert.deepEqual(calls[12].params.plan, ["inspect"]);
+  assert.equal(calls[13].params.run_id, "agent-run-1");
+  assert.equal(calls[14].params.limit, 5);
+  assert.equal(calls[15].params.checklist[0].status, "completed");
+  assert.equal(calls[16].params.status, "passed");
+  assert.equal(calls[17].params.parallel, true);
+  assert.equal(calls[19].params.allowed, true);
+  assert.equal(calls[21].params.capability, "shell.execute");
+  assert.equal(calls[21].params.resource, "*");
+  assert.equal(calls[21].params.lifetime, "run");
+  assert.equal(calls[21].params.scope_id, "agent-run-1");
+  assert.equal(calls[22].params.capability, "shell.execute");
 });
 
 test("mock transport supports the current desktop shell flow", async () => {
@@ -155,6 +201,26 @@ test("mock transport supports the current desktop shell flow", async () => {
   const conversation = await client.createConversation();
   const reply = await client.sendConversationMessage(conversation.id, "hello");
   assert.equal(reply.message.text, "Echo: hello");
+  const agentRun = await client.startAgentRun("inspect repo", {
+    runId: "mock-agent-run-fixed",
+    plan: ["inspect"],
+  });
+  assert.equal(agentRun.run.status, "completed");
+  assert.equal(agentRun.message.text, "Echo: inspect repo");
+  const fetchedAgentRun = await client.getAgentRun("mock-agent-run-fixed");
+  assert.equal(fetchedAgentRun.id, "mock-agent-run-fixed");
+  const agentRuns = await client.listAgentRuns();
+  assert.equal(agentRuns[0].id, "mock-agent-run-fixed");
+  const checklistRun = await client.updateAgentRunChecklist("mock-agent-run-fixed", [
+    { id: "inspect", text: "Inspect repo", status: "completed" },
+  ]);
+  assert.equal(checklistRun.checklist[0].status, "completed");
+  const verifiedRun = await client.updateAgentRunVerification("mock-agent-run-fixed", {
+    status: "passed",
+    summary: "Mock verification passed",
+  });
+  assert.equal(verifiedRun.verification.status, "passed");
+  assert.equal(verifiedRun.verification.summary, "Mock verification passed");
   const health = await client.providersHealth();
   assert.equal(health[0].provider, "localhost.chat");
   const settings = await client.getConversationSettings();
@@ -296,6 +362,21 @@ test("mock transport supports the current desktop shell flow", async () => {
   const updatedGrant = await client.setAllowAllCmd("desktop-preview", true);
   assert.equal(updatedGrant.allow_all_cmd, true);
   assert.equal((await client.getAllowAllCmd("desktop-preview")).allow_all_cmd, true);
+  const scopedGrant = await client.setCapabilityGrant("desktop-preview", "shell.execute", {
+    resource: "C:/workspace",
+    allowed: true,
+    lifetime: "once",
+  });
+  assert.equal(scopedGrant.capability_grants[0].capability, "shell.execute");
+  assert.equal(scopedGrant.capability_grants[0].resource, "C:/workspace");
+  assert.equal(scopedGrant.capability_grants[0].lifetime, "once");
+  const capabilityGrants = await client.getCapabilityGrants("desktop-preview");
+  assert.equal(capabilityGrants.capability_grants[0].allowed, true);
+  const revokedGrant = await client.revokeCapabilityGrant("desktop-preview", {
+    capability: "shell.execute",
+    resource: "C:/workspace",
+  });
+  assert.equal(revokedGrant.capability_grants.length, 0);
 });
 
 test("mock active provider updates persist the selected runtime config", async () => {
@@ -1103,13 +1184,47 @@ test("core session client preserves session id across desktop requests", async (
                         session_id: request.params.session_id,
                         allow_all_cmd: false,
                         updated_by: "none",
+                        capability_grants: [],
                       }
                     : request.method === "permissions.allow_all_cmd.set"
                       ? {
                           session_id: request.params.session_id,
                           allow_all_cmd: request.params.allowed,
                           updated_by: request.params.actor,
+                          capability_grants: [],
                         }
+                      : request.method === "permissions.capability_grants.get"
+                        ? {
+                            session_id: request.params.session_id,
+                            allow_all_cmd: false,
+                            updated_by: "none",
+                            capability_grants: [],
+                          }
+                        : request.method === "permissions.capability_grants.set"
+                          ? {
+                              session_id: request.params.session_id,
+                              allow_all_cmd: false,
+                              updated_by: request.params.actor,
+                              capability_grants: [
+                                {
+                                  id: "grant-1",
+                                  capability: request.params.capability,
+                                  resource: request.params.resource,
+                                  allowed: request.params.allowed,
+                                  updated_by: request.params.actor,
+                                  lifetime: request.params.lifetime,
+                                  scope_id: request.params.scope_id || null,
+                                  uses_remaining: null,
+                                },
+                              ],
+                            }
+                          : request.method === "permissions.capability_grants.revoke"
+                            ? {
+                                session_id: request.params.session_id,
+                                allow_all_cmd: false,
+                                updated_by: request.params.actor,
+                                capability_grants: [],
+                              }
             : request.method === "providers.health"
             ? [{ provider: "localhost.chat", ok: true }]
             : request.method === "settings.conversation.get"
@@ -1224,12 +1339,36 @@ test("core session client preserves session id across desktop requests", async (
   await session.getAgentBundle({ providerRole: "coding_agent" });
   await session.getAgentStarterPack({ providerRole: "coding_agent" });
   await session.getAgentStarterPack({ providerRole: "coding_agent", format: "system-prompt" });
+  await session.startAgentRun("Inspect core", {
+    runId: "session-agent-run",
+    plan: ["inspect"],
+  });
+  await session.getAgentRun("session-agent-run");
+  await session.listAgentRuns({ limit: 5 });
+  await session.updateAgentRunChecklist("session-agent-run", [
+    { id: "inspect", text: "Inspect core", status: "completed" },
+  ]);
+  await session.updateAgentRunVerification("session-agent-run", {
+    status: "passed",
+    summary: "Session protocol passed",
+  });
   await session.invokeMany(
     [{ name: "workspace.read", arguments: { path: "README.md" } }],
     { parallel: true },
   );
   await session.getAllowAllCmd();
   await session.setAllowAllCmd(true);
+  await session.getCapabilityGrants();
+  await session.setCapabilityGrant("shell.execute", {
+    resource: "*",
+    allowed: true,
+    lifetime: "run",
+    scopeId: "session-agent-run",
+  });
+  await session.revokeCapabilityGrant({
+    capability: "shell.execute",
+    resource: "*",
+  });
 
   assert.equal(lines[0].params.session_id, "desktop-ui");
   assert.equal(lines[1].params.source, "desktop-ui");
@@ -1255,11 +1394,27 @@ test("core session client preserves session id across desktop requests", async (
   assert.equal(lines[17].method, "agents.starter_pack");
   assert.equal(lines[17].params.provider_role, "coding_agent");
   assert.equal(lines[17].params.format, "system-prompt");
-  assert.equal(lines[18].method, "tools.invoke_many");
-  assert.equal(lines[18].params.session_id, "desktop-ui");
-  assert.equal(lines[19].method, "permissions.allow_all_cmd.get");
-  assert.equal(lines[20].method, "permissions.allow_all_cmd.set");
-  assert.equal(lines[20].params.allowed, true);
+  assert.equal(lines[18].method, "agents.runs.start");
+  assert.equal(lines[18].params.run_id, "session-agent-run");
+  assert.equal(lines[19].method, "agents.runs.get");
+  assert.equal(lines[20].method, "agents.runs.list");
+  assert.equal(lines[21].method, "agents.runs.checklist.update");
+  assert.equal(lines[21].params.checklist[0].status, "completed");
+  assert.equal(lines[22].method, "agents.runs.verification.update");
+  assert.equal(lines[22].params.status, "passed");
+  assert.equal(lines[23].method, "tools.invoke_many");
+  assert.equal(lines[23].params.session_id, "desktop-ui");
+  assert.equal(lines[24].method, "permissions.allow_all_cmd.get");
+  assert.equal(lines[25].method, "permissions.allow_all_cmd.set");
+  assert.equal(lines[25].params.allowed, true);
+  assert.equal(lines[26].method, "permissions.capability_grants.get");
+  assert.equal(lines[27].method, "permissions.capability_grants.set");
+  assert.equal(lines[27].params.capability, "shell.execute");
+  assert.equal(lines[27].params.session_id, "desktop-ui");
+  assert.equal(lines[27].params.lifetime, "run");
+  assert.equal(lines[27].params.scope_id, "session-agent-run");
+  assert.equal(lines[28].method, "permissions.capability_grants.revoke");
+  assert.equal(lines[28].params.capability, "shell.execute");
 });
 
 test("core session client forwards events to subscribers", async () => {

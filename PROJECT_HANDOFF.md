@@ -89,6 +89,8 @@ Chi giu 3 thu:
   - [docs/notes/memory_and_observer_roadmap.md](C:\Users\Yue\Downloads\YueAI-main\YueAI-main\docs\notes\memory_and_observer_roadmap.md)
 - Agent roadmap:
   - [docs/notes/agent_roadmap.md](C:\Users\Yue\Downloads\YueAI-main\YueAI-main\docs\notes\agent_roadmap.md)
+- Yue omni-agent checklist:
+  - [docs/notes/omni_agent_checklist.md](C:\Users\Yue\Downloads\YueAI-main\YueAI-main\docs\notes\omni_agent_checklist.md)
 - App development roadmap:
   - [docs/notes/app_development_roadmap.md](C:\Users\Yue\Downloads\YueAI-main\YueAI-main\docs\notes\app_development_roadmap.md)
 - Tool activity reconnect issue:
@@ -183,6 +185,25 @@ Chi giu 3 thu:
   - `status`
   - `output`
   - `error`
+- Core da co first durable agent-run surface:
+  - `SQLiteAgentRunStore` tai `data/agent_runs.db`
+  - `YueCore.start_agent_run(...)`
+  - JSONL methods `agents.runs.start`, `agents.runs.get`, `agents.runs.list`
+  - JSONL methods `agents.runs.checklist.update`,
+    `agents.runs.verification.update`
+  - desktop protocol/mock/runtime wrappers cho `agents.runs.*`
+  - events `agent.run.created`, `agent.run.started`, `agent.run.completed`,
+    `agent.run.failed`, `agent.run.cancelled`
+  - structured checklist `id/text/status/note` va verification
+    `not_run/running/passed/failed/skipped`
+  - persona/provider snapshot cho moi run
+  - tool references tu `conversation.tool.requested`,
+    `conversation.tool.completed`, `tool.finished`
+  - approval references tu `approval.pending`, `approval.responded`
+  - `approval_bridge` forward them `run_id`, `conversation_id`,
+    `tool_call_id` neu co trong `ToolRequest.metadata`
+  - agent run id duoc dung lam conversation `run_id` de giu timeline/tool
+    activity tuong thich voi path hien co.
 - Core + desktop shell da co conversation route/prompt editor voi 2 che do:
   - apply runtime;
   - save nguoc lai TOML cho `conversation` config.
@@ -291,22 +312,26 @@ Chi giu 3 thu:
 
 ## Thu tu uu tien hien tai
 
-1. Core chat/runtime/tool loop + tooling cho agent:
-   doc `runtime_flow_map.md` + `agent_roadmap.md` + `permissions_and_safety.md`
-2. Desktop shell/UI va packaged/lifecycle hardening:
-   tiep tuc trong note desktop; core chat/localhost runtime da co proof that, UI chat-first co dinh da on hon, gio uu tien noi lifecycle packaged/native vao path nay
-3. Backend/provider stack de phuc vu core:
-   doc `provider_and_prompt_config.md` + `model_runtime_direction.md` + `hardware_constraints.md`
-4. Memory/observer + permissions mo rong:
-   doc `memory_and_observer_roadmap.md` + `permissions_and_safety.md`
-5. Voice:
-   de sau, doc `voice_deferred_scope.md`
+1. Core agent runtime:
+   doc `omni_agent_checklist.md` + `runtime_flow_map.md` + `agent_roadmap.md`
+2. Desktop shell/UI:
+   doc `desktop_bridge_status.md` + `runtime_flow_map.md`; fix `app.js`/`runtime.js` drift before adding large UI features
+3. Permission/tool control:
+   doc `omni_agent_checklist.md` + `permissions_and_safety.md`; scoped session capability/resource grants, revoke, first lifetimes, resource scope metadata, and denial categories exist; next add permission center UI before adding many new tools
+4. Memory/observer:
+   doc `memory_and_observer_roadmap.md` + `omni_agent_checklist.md`; privacy/permission comes before always-on observer
+5. Plugin/persona ecosystem:
+   doc `omni_agent_checklist.md` + `docs/PLUGIN_DEVELOPMENT.md`; design install/trust/manifest lifecycle before community plugin release
+6. 3D avatar/model loading:
+   keep lightweight and optional; investigate VRM/VTube-like compatibility after core/plugin/memory foundations are stable
+7. Release hardening:
+   packaged proof, installer proof, lifecycle cleanup, migration, and privacy/security gates
 
 ## Next target
 
-- Doc `docs/notes/agent_roadmap.md` truoc de lay thu tu mo file va next step.
+- Doc `docs/notes/omni_agent_checklist.md` truoc de lay huong san pham moi, sau do doc note domain lien quan.
 - Core/tooling:
-  - giu core/tool surface theo alias underscore cho `coding_agent`; neu mo rong them phai giu it tool, backend thong minh, permission ro.
+  - khong mo rong nhieu built-in tool ngay; scoped capability/resource grant da co qua JSONL va desktop wrapper, revoke + lifetime `once/run/conversation/session` da co, denied result da co `denial_category` + `resource_scope`, tiep theo lam permission center list/revoke UI va plugin install/trust lifecycle.
 - Desktop/core UX tiep theo:
   - noi packaged/Tauri desktop app vao local runtime hien dang chay that, giam phu thuoc mock/fallback path;
   - neu co the, de desktop tu spawn/stop `llama-server` hoac it nhat hien readiness ro rang cho `127.0.0.1:8080`;

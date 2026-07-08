@@ -137,6 +137,12 @@ class ToolExecutor:
                 "outcome": decision.outcome.value,
                 "reason": decision.reason,
                 "rule_id": decision.rule_id,
+                "denial_category": (
+                    decision.denial_category.value
+                    if decision.denial_category is not None
+                    else None
+                ),
+                "resource_scope": dict(decision.resource_scope),
             },
         )
         if decision.outcome is not PermissionOutcome.ALLOW:
@@ -145,6 +151,19 @@ class ToolExecutor:
                 ToolStatus.DENIED,
                 started,
                 error=decision.reason,
+                metadata={
+                    "permission": {
+                        "outcome": decision.outcome.value,
+                        "reason": decision.reason,
+                        "rule_id": decision.rule_id,
+                        "denial_category": (
+                            decision.denial_category.value
+                            if decision.denial_category is not None
+                            else None
+                        ),
+                        "resource_scope": dict(decision.resource_scope),
+                    }
+                },
             )
             await self._finish(request, result)
             return result
@@ -199,6 +218,7 @@ class ToolExecutor:
                 "tool": result.tool_name,
                 "status": result.status.value,
                 "error": result.error,
+                "metadata": dict(result.metadata),
                 "output_type": type(result.output).__name__,
                 "duration_ms": round(
                     (result.finished_at - result.started_at).total_seconds() * 1000,
@@ -225,6 +245,7 @@ class ToolExecutor:
         *,
         output: Any = None,
         error: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
     ) -> ToolResult:
         return ToolResult(
             request_id=request.id,
@@ -232,6 +253,7 @@ class ToolExecutor:
             status=status,
             output=output,
             error=error,
+            metadata=dict(metadata or {}),
             started_at=started,
             finished_at=datetime.now(UTC),
         )

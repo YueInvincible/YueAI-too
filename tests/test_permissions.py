@@ -2,6 +2,7 @@ import unittest
 
 from yue_core.contracts import (
     Capability,
+    PermissionDenialCategory,
     PermissionOutcome,
     RiskLevel,
     ToolRequest,
@@ -155,6 +156,189 @@ class PermissionTests(unittest.IsolatedAsyncioTestCase):
         engine = PermissionEngine("observe", interactive_approval=False)
         decision = engine.evaluate_allow_all_cmd_grant(actor="desktop-ui", allowed=True)
         self.assertEqual(decision.outcome, PermissionOutcome.DENY)
+
+    async def test_capability_grant_allows_model_shell_for_matching_resource(self):
+        grants = PermissionGrantStore()
+        grants.set_capability_grant(
+            "conversation-1",
+            Capability.SHELL_EXECUTE,
+            resource="C:/workspace",
+            updated_by="ui",
+        )
+        engine = PermissionEngine(
+            "assist",
+            interactive_approval=False,
+            grant_store=grants,
+        )
+        decision = await engine.evaluate(
+            ToolRequest(
+                "shell.run",
+                {"cwd": "C:/workspace"},
+                actor="model",
+                session_id="conversation-1",
+            ),
+            ToolSpec("shell.run", "", {}, Capability.SHELL_EXECUTE, RiskLevel.HIGH),
+        )
+        self.assertEqual(decision.outcome, PermissionOutcome.ALLOW)
+        self.assertEqual(decision.rule_id, "session-capability-grant")
+
+    async def test_capability_grant_does_not_bypass_observe_profile(self):
+        grants = PermissionGrantStore()
+        grants.set_capability_grant(
+            "conversation-1",
+            Capability.SHELL_EXECUTE,
+            resource="*",
+            updated_by="ui",
+        )
+        engine = PermissionEngine(
+            "observe",
+            interactive_approval=False,
+            grant_store=grants,
+        )
+        decision = await engine.evaluate(
+            ToolRequest("shell.run", {}, actor="model", session_id="conversation-1"),
+            ToolSpec("shell.run", "", {}, Capability.SHELL_EXECUTE, RiskLevel.HIGH),
+        )
+        self.assertEqual(decision.outcome, PermissionOutcome.DENY)
+
+    def test_capability_grant_policy_denies_model_actor(self):
+        engine = PermissionEngine("assist", interactive_approval=False)
+        decision = engine.evaluate_capability_grant(
+            actor="model",
+            capability=Capability.SHELL_EXECUTE,
+        )
+        self.assertEqual(decision.outcome, PermissionOutcome.DENY)
+
+    def test_capability_grant_policy_denies_capability_outside_profile(self):
+        engine = PermissionEngine("assist", interactive_approval=False)
+        decision = engine.evaluate_capability_grant(
+            actor="desktop-ui",
+            capability=Capability.PROCESS_CONTROL,
+        )
+        self.assertEqual(decision.outcome, PermissionOutcome.DENY)
+
+    async def test_capability_grant_requires_matching_resource(self):
+        grants = PermissionGrantStore()
+        grants.set_capability_grant(
+            "conversation-1",
+            Capability.SHELL_EXECUTE,
+            resource="C:/safe",
+            updated_by="ui",
+        )
+        engine = PermissionEngine(
+            "assist",
+            interactive_approval=False,
+            grant_store=grants,
+        )
+        decision = await engine.evaluate(
+            ToolRequest(
+                "shell.run",
+                {"cwd": "C:/other"},
+                actor="model",
+                session_id="conversation-1",
+            ),
+            ToolSpec("shell.run", "", {}, Capability.SHELL_EXECUTE, RiskLevel.HIGH),
+        )
+        self.assertEqual(decision.outcome, PermissionOutcome.DENY)
+
+    async def test_once_capability_grant_is_consumed_after_allow(self):
+        grants = PermissionGrantStore()
+        grants.set_capability_grant(
+            "conversation-1",
+            Capability.SHELL_EXECUTE,
+            resource="*",
+            lifetime="once",
+            updated_by="ui",
+        )
+        engine = PermissionEngine(
+            "assist",
+            interactive_approval=False,
+            grant_store=grants,
+        )
+        request = ToolRequest("shell.run", {}, actor="model", session_id="conversation-1")
+        spec = ToolSpec("shell.run", "", {}, Capability.SHELL_EXECUTE, RiskLevel.HIGH)
+        first = await engine.evaluate(request, spec)
+        second = await engine.evaluate(request, spec)
+        self.assertEqual(first.outcome, PermissionOutcome.ALLOW)
+        self.assertEqual(second.outcome, PermissionOutcome.DENY)
+        self.assertEqual(grants.get("conversation-1").capability_grants, ())
+
+    async def test_run_lifetime_capability_grant_requires_matching_run(self):
+        grants = PermissionGrantStore()
+        grants.set_capability_grant(
+            "conversation-1",
+            Capability.SHELL_EXECUTE,
+            resource="*",
+            lifetime="run",
+            scope_id="run-1",
+            updated_by="ui",
+        )
+        engine = PermissionEngine(
+            "assist",
+            interactive_approval=False,
+            grant_store=grants,
+        )
+        spec = ToolSpec("shell.run", "", {}, Capability.SHELL_EXECUTE, RiskLevel.HIGH)
+        denied = await engine.evaluate(
+            ToolRequest(
+                "shell.run",
+                {},
+                actor="model",
+                session_id="conversation-1",
+                metadata={"run_id": "run-2"},
+            ),
+            spec,
+        )
+        allowed = await engine.evaluate(
+            ToolRequest(
+                "shell.run",
+                {},
+                actor="model",
+                session_id="conversation-1",
+                metadata={"run_id": "run-1"},
+            ),
+            spec,
+        )
+        self.assertEqual(denied.outcome, PermissionOutcome.DENY)
+        self.assertEqual(denied.denial_category, PermissionDenialCategory.MISSING_SCOPE)
+        self.assertEqual(denied.resource_scope["kind"], "shell.cwd")
+        self.assertEqual(denied.resource_scope["value"], "*")
+        self.assertEqual(allowed.outcome, PermissionOutcome.ALLOW)
+
+    def test_revoke_capability_grant_removes_matching_scope(self):
+        grants = PermissionGrantStore()
+        grants.set_capability_grant(
+            "conversation-1",
+            Capability.SHELL_EXECUTE,
+            resource="C:/safe",
+            updated_by="ui",
+        )
+        updated = grants.revoke_capability_grant(
+            "conversation-1",
+            capability=Capability.SHELL_EXECUTE,
+            resource="C:/safe",
+        )
+        self.assertEqual(updated.capability_grants, ())
+
+    def test_run_lifetime_grant_policy_requires_scope_id(self):
+        engine = PermissionEngine("assist", interactive_approval=False)
+        decision = engine.evaluate_capability_grant(
+            actor="desktop-ui",
+            capability=Capability.SHELL_EXECUTE,
+            lifetime="run",
+        )
+        self.assertEqual(decision.outcome, PermissionOutcome.DENY)
+
+    async def test_profile_denial_has_policy_category_and_resource_scope(self):
+        engine = PermissionEngine("observe")
+        decision = await engine.evaluate(
+            ToolRequest("file.write", {"path": "notes.txt"}),
+            ToolSpec("file.write", "", {}, Capability.FILE_WRITE, RiskLevel.MEDIUM),
+        )
+        self.assertEqual(decision.outcome, PermissionOutcome.DENY)
+        self.assertEqual(decision.denial_category, PermissionDenialCategory.POLICY)
+        self.assertEqual(decision.resource_scope["kind"], "filesystem.path")
+        self.assertEqual(decision.resource_scope["value"], "notes.txt")
 
 
 if __name__ == "__main__":

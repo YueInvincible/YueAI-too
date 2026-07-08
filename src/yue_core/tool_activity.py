@@ -189,6 +189,16 @@ class ToolActivityStore:
 
     @staticmethod
     def _classify_denied_status(item: dict[str, Any], payload: dict[str, Any]) -> str:
+        permission = (payload.get("metadata") or {}).get("permission") or {}
+        category = permission.get("denial_category")
+        if category == "denied_by_user":
+            return "denied_by_user"
+        if category == "denied_by_missing_scope":
+            return "denied_by_missing_scope"
+        if category == "denied_by_approval_unavailable":
+            return "denied_by_approval_unavailable"
+        if category == "denied_by_policy":
+            return "denied_by_policy"
         error = str(payload.get("error") or item.get("error") or "").lower()
         if item.get("approval_id") or "user denied" in error:
             return "denied_by_user"

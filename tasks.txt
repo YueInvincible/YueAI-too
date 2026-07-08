@@ -3,6 +3,21 @@ YueAI current checklist
 
 Completed and verified
 ----------------------
+- Core now has an initial durable agent-run surface: `SQLiteAgentRunStore`,
+  `YueCore.start_agent_run(...)`, JSONL `agents.runs.start/get/list`, and
+  `agent.run.*` events.
+- Agent runs now also persist structured checklist items and verification
+  status/summary through JSONL update methods.
+- Agent runs now persist persona/provider snapshots and automatically record
+  tool/approval references from runtime events.
+- Permission core now has session capability/resource grants exposed through
+  JSONL `permissions.capability_grants.get/set` and desktop protocol/mock/runtime
+  wrappers; grants cannot bypass the active profile or be changed by `model`.
+- Scoped grants now support JSONL revoke plus first lifetime enforcement:
+  `once`, `run`, `conversation`, and `session`.
+- Permission decisions and denied tool results now carry structured
+  `denial_category` plus `resource_scope`; tool activity can distinguish
+  missing-scope denials without parsing error text.
 - Single active-provider flow is wired through backend and desktop UI.
 - Local/OpenAI-compatible and Anthropic provider settings can be edited from the desktop shell.
 - Run inspector, tool activity reconnect snapshot, and grouped run summaries are in place.
@@ -19,6 +34,21 @@ Completed and verified
 
 Known next targets
 ------------------
+- New source-of-truth checklist: `docs/notes/omni_agent_checklist.md`.
+- Re-orient product priorities to:
+  1. core agent runtime;
+  2. desktop UI;
+  3. permission/tools;
+  4. memory;
+  5. plugin ecosystem;
+  6. 3D avatar;
+  7. release hardening.
+- Treat Codex as the reference for agent loop, sandbox/approval, bounded
+  context, config layering, tool contracts, and plugin discipline; Yue should
+  extend this into desktop-wide assistance.
+- Do not write many built-in tools yet. Next add permission center list/revoke
+  UI with denied metadata display, then plugin install/trust lifecycle, persona
+  schema, and memory schema.
 - Reduce drift between `desktop/src/app.js` and `desktop/src/runtime.js`; note that `desktop/index.html` currently loads `runtime.js` directly, so `runtime.js` remains the live shell source of truth until unified.
 - Add clearer local-runtime readiness and recovery UX for the localhost provider path.
 - Keep extending local-runtime readiness and recovery UX for the localhost provider path.

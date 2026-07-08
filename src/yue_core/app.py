@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import logging
@@ -9,6 +10,11 @@ from typing import Any, Mapping
 from urllib.parse import urlsplit
 
 from .audit import AuditLog
+from .agent_runs import (
+    AgentRunStatus,
+    AgentRunVerificationStatus,
+    SQLiteAgentRunStore,
+)
 from .builtin_tools import (
     ApprovalRequestTool,
     AskUserApprovalTool,
@@ -212,6 +218,9 @@ class YueCore:
         self.shell_sessions = ShellSessionManager()
         self.permission_grants = PermissionGrantStore()
         self.tool_activity = ToolActivityStore()
+        self.agent_runs = SQLiteAgentRunStore(
+            settings.core.data_dir / "agent_runs.db"
+        )
         self.approvals = (
             approval_provider
             if approval_provider is not None
@@ -225,6 +234,7 @@ class YueCore:
         self.services.register("core.shell_sessions", self.shell_sessions, owner="core")
         self.services.register("core.permission_grants", self.permission_grants, owner="core")
         self.services.register("core.tool_activity", self.tool_activity, owner="core")
+        self.services.register("core.agent_runs", self.agent_runs, owner="core")
         self.services.register("core.approvals", self.approvals, owner="core")
         self._event_unsubscribes = self._subscribe_tool_activity()
         self.desktop = DesktopSessionManager(
@@ -314,6 +324,11 @@ class YueCore:
             self.events.subscribe("conversation.*", self.tool_activity.record),
             self.events.subscribe("approval.*", self.tool_activity.record),
             self.events.subscribe("tool.*", self.tool_activity.record),
+            self.events.subscribe("conversation.tool.requested", self._record_agent_run_reference),
+            self.events.subscribe("conversation.tool.completed", self._record_agent_run_reference),
+            self.events.subscribe("tool.finished", self._record_agent_run_reference),
+            self.events.subscribe("approval.pending", self._record_agent_run_reference),
+            self.events.subscribe("approval.responded", self._record_agent_run_reference),
         ]
 
     def conversation_settings_snapshot(self) -> dict[str, Any]:
@@ -328,6 +343,285 @@ class YueCore:
                 for name, profile in self.conversations.prompt_profiles.items()
             },
         }
+
+    async def start_agent_run(
+        self,
+        user_request: str,
+        *,
+        conversation_id: str | None = None,
+        title: str | None = None,
+        provider_role: str = "coding_agent",
+        run_id: str | None = None,
+        actor: str = "ui",
+        plan: list[str] | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if not self._started:
+            raise RuntimeError("YueCore must be started before starting agent runs")
+        if not user_request.strip():
+            raise ValueError("user_request must not be empty")
+        if conversation_id is None:
+            conversation = await self.conversations.create(
+                title=title or "Agent run",
+                metadata={"kind": "agent_run"},
+            )
+            conversation_id = conversation.id
+        elif await self.conversation_store.get(conversation_id) is None:
+            raise ValueError(f"Conversation does not exist: {conversation_id}")
+
+        provider_name = self.conversations.resolve_provider(provider_role=provider_role)
+        prompt_profile_name = self.conversations.resolve_prompt_profile(provider_role)
+        prompt_profile = self.conversations.prompt_profiles.get(prompt_profile_name, {})
+        provider_snapshot = {
+            "provider_role": provider_role,
+            "provider": provider_name,
+            "prompt_profile": prompt_profile_name,
+            "default_provider": self.conversations.default_provider,
+        }
+        persona_snapshot = {
+            "id": prompt_profile_name,
+            "personality": str(prompt_profile.get("personality", "")),
+            "system_instruction": str(prompt_profile.get("system_instruction", "")),
+            "tool_instruction": str(prompt_profile.get("tool_instruction", "")),
+            "response_instruction": str(prompt_profile.get("response_instruction", "")),
+        }
+        run = await self.agent_runs.create(
+            conversation_id=conversation_id,
+            user_request=user_request,
+            provider_role=provider_role,
+            run_id=run_id,
+            plan=plan or (),
+            persona_snapshot=persona_snapshot,
+            provider_snapshot=provider_snapshot,
+            metadata={
+                "actor": actor,
+                **dict(metadata or {}),
+            },
+        )
+        await self.audit.write("agent.run.created", run.to_dict())
+        await self.events.publish(
+            CoreEvent("agent.run.created", run.to_dict(), correlation_id=run.id)
+        )
+        run = await self.agent_runs.update(run.id, status=AgentRunStatus.RUNNING)
+        await self.audit.write("agent.run.started", run.to_dict())
+        await self.events.publish(
+            CoreEvent("agent.run.started", run.to_dict(), correlation_id=run.id)
+        )
+        try:
+            message = await self.conversations.send(
+                conversation_id,
+                user_request,
+                provider_role=provider_role,
+                run_id=run.id,
+                actor=actor,
+            )
+            run = await self.agent_runs.update(
+                run.id,
+                status=AgentRunStatus.COMPLETED,
+                response_message_id=message.id,
+                completed=True,
+            )
+            await self.audit.write("agent.run.completed", run.to_dict())
+            await self.events.publish(
+                CoreEvent(
+                    "agent.run.completed",
+                    {
+                        **run.to_dict(),
+                        "message": message.to_dict(),
+                    },
+                    correlation_id=run.id,
+                )
+            )
+            return {"run": run.to_dict(), "message": message.to_dict()}
+        except asyncio.CancelledError:
+            run = await self.agent_runs.update(
+                run.id,
+                status=AgentRunStatus.CANCELLED,
+                error="Cancelled",
+                completed=True,
+            )
+            await self.audit.write("agent.run.cancelled", run.to_dict())
+            await self.events.publish(
+                CoreEvent("agent.run.cancelled", run.to_dict(), correlation_id=run.id)
+            )
+            raise
+        except Exception as exc:
+            run = await self.agent_runs.update(
+                run.id,
+                status=AgentRunStatus.FAILED,
+                error=str(exc),
+                completed=True,
+            )
+            await self.audit.write("agent.run.failed", run.to_dict())
+            await self.events.publish(
+                CoreEvent("agent.run.failed", run.to_dict(), correlation_id=run.id)
+            )
+            raise
+
+    async def update_agent_run_checklist(
+        self,
+        run_id: str,
+        checklist: list[Mapping[str, Any]],
+    ) -> dict[str, Any]:
+        if not self._started:
+            raise RuntimeError("YueCore must be started before updating agent runs")
+        run = await self.agent_runs.update(run_id, checklist=checklist)
+        await self.audit.write("agent.run.checklist.updated", run.to_dict())
+        await self.events.publish(
+            CoreEvent(
+                "agent.run.checklist.updated",
+                run.to_dict(),
+                correlation_id=run.id,
+            )
+        )
+        return run.to_dict()
+
+    async def _record_agent_run_reference(self, event: CoreEvent) -> None:
+        payload = dict(event.payload or {})
+        run_id = payload.get("run_id")
+        if not run_id:
+            return
+        run = await self.agent_runs.get(str(run_id))
+        if run is None:
+            return
+        if event.topic in {
+            "conversation.tool.requested",
+            "conversation.tool.completed",
+            "tool.finished",
+        }:
+            tool_reference = self._tool_reference_from_event(event.topic, payload)
+            if tool_reference is None:
+                return
+            references = self._upsert_reference(
+                run.tool_references,
+                tool_reference,
+                keys=("request_id", "tool_call_id"),
+            )
+            await self.agent_runs.update(str(run_id), tool_references=references)
+            return
+        if event.topic in {"approval.pending", "approval.responded"}:
+            approval_reference = self._approval_reference_from_event(event.topic, payload)
+            if approval_reference is None:
+                return
+            references = self._upsert_reference(
+                run.approval_references,
+                approval_reference,
+                keys=("approval_id", "request_id"),
+            )
+            status = (
+                AgentRunStatus.WAITING_APPROVAL
+                if event.topic == "approval.pending"
+                else None
+            )
+            await self.agent_runs.update(
+                str(run_id),
+                status=status,
+                approval_references=references,
+            )
+
+    @staticmethod
+    def _tool_reference_from_event(
+        topic: str,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        if topic == "conversation.tool.requested":
+            tool_call = payload.get("tool_call") or {}
+            return {
+                "stage": "requested",
+                "request_id": payload.get("request_id"),
+                "tool_call_id": tool_call.get("id"),
+                "tool": tool_call.get("name"),
+                "arguments": dict(tool_call.get("arguments") or {}),
+            }
+        if topic == "conversation.tool.completed":
+            return {
+                "stage": "completed",
+                "tool_call_id": payload.get("tool_call_id"),
+                "tool": payload.get("tool"),
+                "status": payload.get("status"),
+            }
+        if topic == "tool.finished":
+            return {
+                "stage": "finished",
+                "request_id": payload.get("request_id"),
+                "tool_call_id": payload.get("tool_call_id"),
+                "tool": payload.get("tool_name") or payload.get("tool"),
+                "status": payload.get("status"),
+                "error": payload.get("error"),
+                "output": payload.get("output"),
+            }
+        return None
+
+    @staticmethod
+    def _approval_reference_from_event(
+        topic: str,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        approval_id = payload.get("approval_id")
+        request_id = payload.get("request_id")
+        if not approval_id and not request_id:
+            return None
+        return {
+            "stage": "pending" if topic == "approval.pending" else "responded",
+            "approval_id": approval_id,
+            "request_id": request_id,
+            "tool_call_id": payload.get("tool_call_id"),
+            "tool": payload.get("tool_name"),
+            "approved": payload.get("approved"),
+            "reason": payload.get("reason"),
+            "risk_level": payload.get("risk_level"),
+        }
+
+    @staticmethod
+    def _upsert_reference(
+        current: tuple[Mapping[str, Any], ...],
+        reference: Mapping[str, Any],
+        *,
+        keys: tuple[str, ...],
+    ) -> list[dict[str, Any]]:
+        next_items: list[dict[str, Any]] = []
+        replaced = False
+        for item in current:
+            if any(reference.get(key) and item.get(key) == reference.get(key) for key in keys):
+                merged = {**dict(item), **dict(reference)}
+                next_items.append(merged)
+                replaced = True
+            else:
+                next_items.append(dict(item))
+        if not replaced:
+            next_items.append(dict(reference))
+        return next_items
+
+    async def update_agent_run_verification(
+        self,
+        run_id: str,
+        *,
+        status: str,
+        summary: str = "",
+    ) -> dict[str, Any]:
+        if not self._started:
+            raise RuntimeError("YueCore must be started before updating agent runs")
+        verification_status = AgentRunVerificationStatus(str(status))
+        run_status = (
+            AgentRunStatus.VERIFYING
+            if verification_status is AgentRunVerificationStatus.RUNNING
+            else None
+        )
+        run = await self.agent_runs.update(
+            run_id,
+            status=run_status,
+            verification_status=verification_status,
+            verification_summary=summary,
+        )
+        await self.audit.write("agent.run.verification.updated", run.to_dict())
+        await self.events.publish(
+            CoreEvent(
+                "agent.run.verification.updated",
+                run.to_dict(),
+                correlation_id=run.id,
+            )
+        )
+        return run.to_dict()
 
     def agent_bundle_snapshot(self, provider_role: str = "coding_agent") -> dict[str, Any]:
         route = dict(self.conversations.routes.get(provider_role) or {})
@@ -1025,6 +1319,8 @@ class YueCore:
             self.services.register("core.approvals", self.approvals, owner="core")
         if "core.tool_activity" not in self.services:
             self.services.register("core.tool_activity", self.tool_activity, owner="core")
+        if "core.agent_runs" not in self.services:
+            self.services.register("core.agent_runs", self.agent_runs, owner="core")
         if "desktop.session" not in self.services:
             self.services.register("desktop.session", self.desktop, owner="core")
         if "conversation.store" not in self.services:

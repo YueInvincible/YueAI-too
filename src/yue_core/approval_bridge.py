@@ -20,7 +20,7 @@ class PendingApproval:
     future: asyncio.Future[bool] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "approval_id": self.approval_id,
             "request_id": self.request.id,
             "tool_name": self.request.tool_name,
@@ -31,6 +31,10 @@ class PendingApproval:
             "arguments": dict(self.request.arguments),
             "created_at": self.created_at,
         }
+        for key in ("run_id", "conversation_id", "tool_call_id"):
+            if key in self.request.metadata:
+                payload[key] = self.request.metadata[key]
+        return payload
 
 
 class BridgeApprovalProvider(ApprovalProvider):

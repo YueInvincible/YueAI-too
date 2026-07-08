@@ -50,6 +50,25 @@ class PermissionOutcome(str, Enum):
     ASK = "ask"
 
 
+class PermissionDenialCategory(str, Enum):
+    POLICY = "denied_by_policy"
+    USER = "denied_by_user"
+    MISSING_SCOPE = "denied_by_missing_scope"
+    APPROVAL_UNAVAILABLE = "denied_by_approval_unavailable"
+
+
+class ResourceScopeKind(str, Enum):
+    GLOBAL = "global"
+    WORKSPACE_PATH = "workspace.path"
+    FILESYSTEM_PATH = "filesystem.path"
+    SHELL_CWD = "shell.cwd"
+    NETWORK_DOMAIN = "network.domain"
+    LOCAL_PORT = "network.local_port"
+    APP = "app"
+    SCREEN_REGION = "screen.region"
+    MEMORY_NAMESPACE = "memory.namespace"
+
+
 class ToolStatus(str, Enum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
@@ -177,6 +196,7 @@ class ToolResult:
     status: ToolStatus
     output: Any = None
     error: str | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
     started_at: datetime = field(default_factory=utc_now)
     finished_at: datetime = field(default_factory=utc_now)
 
@@ -191,6 +211,7 @@ class ToolResult:
             "status": self.status.value,
             "output": self.output,
             "error": self.error,
+            "metadata": dict(self.metadata),
             "started_at": self.started_at.isoformat(),
             "finished_at": self.finished_at.isoformat(),
         }
@@ -338,6 +359,8 @@ class PermissionDecision:
     outcome: PermissionOutcome
     reason: str
     rule_id: str | None = None
+    denial_category: PermissionDenialCategory | None = None
+    resource_scope: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

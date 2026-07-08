@@ -43,6 +43,33 @@ Tach cac yeu cau permissions/safety ra khoi handoff tong de agent sau khong bo s
   - grant nay chi mo cho model shell tools (`shell.exec`, `shell.run`, `shell.session`) trong session duoc chi dinh;
   - grant khong xuyen qua boundary profile `observe`;
   - transport core gio da enforce ro: `actor=model` khong duoc tu bat grant nay, chi non-model actor moi doi duoc grant.
+- Da co scoped capability/resource grant dau tien:
+  - transport method `permissions.capability_grants.get`;
+  - transport method `permissions.capability_grants.set`;
+  - transport method `permissions.capability_grants.revoke`;
+  - moi grant co `id`, `capability`, `resource`, `lifetime`, `scope_id`, `uses_remaining`;
+  - lifetime da enforce trong core: `once`, `run`, `conversation`, `session`;
+  - `once` tu consume sau lan allow dau tien;
+  - `run` yeu cau `scope_id` va chi match dung `run_id`;
+  - grant khong xuyen qua boundary profile `observe`;
+  - `actor=model` khong duoc tu set/revoke grant.
+- Da co resource scope taxonomy contract dau tien trong core:
+  - `global`;
+  - `workspace.path`;
+  - `filesystem.path`;
+  - `shell.cwd`;
+  - `network.domain`;
+  - `network.local_port`;
+  - `app`;
+  - `screen.region`;
+  - `memory.namespace`.
+- Tool denied result gio co metadata co cau truc:
+  - `denied_by_policy`;
+  - `denied_by_user`;
+  - `denied_by_missing_scope`;
+  - `denied_by_approval_unavailable`;
+  - `resource_scope` di kem trong `ToolResult.metadata.permission`;
+  - tool activity uu tien metadata nay thay vi doan error text.
 - Desktop shell da render ro hon contract nay:
   - panel toggle co note ro grant chi anh huong model shell tools trong session hien tai;
   - tool contract panel show `parallel_safe`, `mutates_state`, `output_kind`;
@@ -64,9 +91,9 @@ Tach cac yeu cau permissions/safety ra khoi handoff tong de agent sau khong bo s
 
 ## Viec agent sau nen lam
 
-1. Audit tiep cac action co side effect trong desktop/core de xem con duong nao chua di qua permission engine.
-2. Noi tool-result UX voi approval UX de user thay ngay tool nao dang bi chan boi profile, tool nao dang doi approval, tool nao da duoc session-grant.
-3. Can nhac bo sung policy chi tiet hon theo actor/session thay vi chi theo profile va tool name.
+1. Noi permission center UI voi grant list/revoke de user thay granted scopes va thu hoi duoc.
+2. Mo rong resource taxonomy va inference cho browser/app/screen/memory khi cac tool do bat dau duoc thiet ke.
+3. Audit tiep cac action co side effect trong desktop/core de xem con duong nao chua di qua permission engine.
 4. Tach ro phan nao la approval UI/runtime, phan nao la enforcement core.
 
 ## Phu thuoc

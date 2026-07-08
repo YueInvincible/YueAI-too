@@ -166,6 +166,11 @@ Desktop shell UI
     - `tools.guide`
     - `agents.bundle`
     - `agents.starter_pack`
+    - `agents.runs.start`
+    - `agents.runs.get`
+    - `agents.runs.list`
+    - `agents.runs.checklist.update`
+    - `agents.runs.verification.update`
     - `tools.invoke_many`
     - `permissions.allow_all_cmd.get`
     - `permissions.allow_all_cmd.set`
@@ -190,6 +195,25 @@ Desktop shell UI
     - `recipes`
     - tool-level `summary`, `follow_up`, `preferred_inputs`, `examples`
   - `agents.starter_pack` build tren cung source-of-truth do, nhung tra them payload copy-ready cho nguoi/agent client: starter prompt, integration checklist, va 1 blob markdown de paste thang.
+  - `agents.runs.start` tao durable agent-run record rieng, sau do chay
+    conversation loop voi `provider_role = coding_agent` mac dinh va dung
+    agent run id lam `conversation.run_id` de tool activity/run inspector co
+    the map chung mot timeline.
+  - `agents.runs.get` va `agents.runs.list` doc lai durable run records tu
+    `core.agent_runs`.
+  - `agents.runs.checklist.update` ghi structured checklist `id/text/status/note`.
+  - `agents.runs.verification.update` ghi verification `status/summary` rieng
+    voi run status.
+  - Agent run records gio luu:
+    - `persona_snapshot`
+    - `provider_snapshot`
+    - `tool_references`
+    - `approval_references`
+  - Core subscribe tool/conversation/approval events de upsert references theo
+    `run_id`; approval bridge forward them `run_id`, `conversation_id`,
+    `tool_call_id` tu `ToolRequest.metadata`.
+  - Desktop protocol/mock/runtime clients da co wrapper cho `agents.runs.*`,
+    nhung UI panel rieng cho agent runs chua duoc render.
   - CLI gio co `export-agent-starter-pack` de xuat payload nay truc tiep tu terminal ma khong can mo desktop shell.
   - CLI format hien co gom ca full pack va focused slices: `manifest-json`, `system-prompt`, `starter-prompt`, `checklist`.
   - starter pack markdown gio co them muc `Common tool recipes` de human/operator copy nhanh workflow dung tool.
@@ -715,6 +739,10 @@ Doc:
 - Tool/event observability da ro hon:
   - `approval.request` publish `approval.requested` + `approval.resolved`;
   - `shell.session` publish `shell.session.started` / `read` / `listed` / `stopped`;
+  - `agents.runs.start` publish `agent.run.created` / `agent.run.started` /
+    `agent.run.completed` / `agent.run.failed` / `agent.run.cancelled`;
+  - checklist/verification updates publish `agent.run.checklist.updated` va
+    `agent.run.verification.updated`;
   - cac action tren cung ghi audit record rieng ngoai `tool.request` / `tool.result`.
 - Tool surface van chua khop 100% target roadmap:
   - van song song duy tri ca tool cu `file.*` / `shell.exec` de giu tuong thich test va transport hien tai.

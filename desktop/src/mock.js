@@ -21,6 +21,8 @@ function defaultState() {
 export function createMockTransport() {
   const state = defaultState();
   let conversationCounter = 0;
+  let agentRunCounter = 0;
+  let agentRuns = [];
   let conversationSettings = {
     default_provider: "localhost.chat",
     routes: {
@@ -142,6 +144,7 @@ export function createMockTransport() {
     session_id: "desktop-preview",
     allow_all_cmd: false,
     updated_by: "none",
+    capability_grants: [],
   };
   let toolActivitySnapshot = {
     items: [
@@ -476,6 +479,75 @@ export function createMockTransport() {
             };
           }
           return JSON.parse(JSON.stringify(agentStarterPack));
+        case "agents.runs.start": {
+          agentRunCounter += 1;
+          const run = {
+            id: params.run_id || `mock-agent-run-${agentRunCounter}`,
+            conversation_id: params.conversation_id || `mock-agent-conversation-${agentRunCounter}`,
+            user_request: params.user_request || params.content || "",
+            provider_role: params.provider_role || "coding_agent",
+            status: "completed",
+            plan: params.plan || [],
+            checklist: (params.plan || []).map((text, index) => ({
+              id: `step-${index + 1}`,
+              text,
+              status: "pending",
+              note: "",
+            })),
+            verification: {
+              status: "not_run",
+              summary: "",
+            },
+            metadata: params.metadata || {},
+            response_message_id: `mock-agent-message-${agentRunCounter}`,
+            error: null,
+            created_at: now(),
+            updated_at: now(),
+            completed_at: now(),
+          };
+          agentRuns = [run, ...agentRuns];
+          return {
+            run: JSON.parse(JSON.stringify(run)),
+            message: createMessage("assistant", `Echo: ${run.user_request}`),
+          };
+        }
+        case "agents.runs.get": {
+          const match = agentRuns.find((item) => item.id === params.run_id);
+          if (!match) {
+            throw new Error(`Unknown agent run: ${params.run_id}`);
+          }
+          return JSON.parse(JSON.stringify(match));
+        }
+        case "agents.runs.list":
+          return JSON.parse(JSON.stringify(agentRuns.slice(0, params.limit || 100)));
+        case "agents.runs.checklist.update": {
+          const index = agentRuns.findIndex((item) => item.id === params.run_id);
+          if (index < 0) {
+            throw new Error(`Unknown agent run: ${params.run_id}`);
+          }
+          agentRuns[index] = {
+            ...agentRuns[index],
+            checklist: params.checklist || [],
+            updated_at: now(),
+          };
+          return JSON.parse(JSON.stringify(agentRuns[index]));
+        }
+        case "agents.runs.verification.update": {
+          const index = agentRuns.findIndex((item) => item.id === params.run_id);
+          if (index < 0) {
+            throw new Error(`Unknown agent run: ${params.run_id}`);
+          }
+          agentRuns[index] = {
+            ...agentRuns[index],
+            verification: {
+              status: params.status,
+              summary: params.summary || "",
+            },
+            status: params.status === "running" ? "verifying" : agentRuns[index].status,
+            updated_at: now(),
+          };
+          return JSON.parse(JSON.stringify(agentRuns[index]));
+        }
         case "tools.invoke_many":
           return {
             parallel: Boolean(params.parallel),
@@ -506,16 +578,72 @@ export function createMockTransport() {
               session_id: params.session_id,
               allow_all_cmd: false,
               updated_by: "none",
+              capability_grants: [],
             };
           }
           return JSON.parse(JSON.stringify(allowAllCmdGrant));
         case "permissions.allow_all_cmd.set":
           allowAllCmdGrant = {
+            ...allowAllCmdGrant,
             session_id: params.session_id,
             allow_all_cmd: Boolean(params.allowed),
             updated_by: params.actor || "desktop-ui",
           };
           return JSON.parse(JSON.stringify(allowAllCmdGrant));
+        case "permissions.capability_grants.get":
+          if (params.session_id !== allowAllCmdGrant.session_id) {
+            return {
+              session_id: params.session_id,
+              allow_all_cmd: false,
+              updated_by: "none",
+              capability_grants: [],
+            };
+          }
+          return JSON.parse(JSON.stringify(allowAllCmdGrant));
+        case "permissions.capability_grants.set": {
+          const resource = params.resource || "*";
+          const capability = params.capability;
+          const capabilityGrants = (allowAllCmdGrant.capability_grants || []).filter(
+            (item) => item.capability !== capability || item.resource !== resource,
+          );
+          capabilityGrants.push({
+            id: `mock-grant-${capabilityGrants.length + 1}`,
+            capability,
+            resource,
+            allowed: Boolean(params.allowed),
+            updated_by: params.actor || "desktop-ui",
+            lifetime: params.lifetime || "session",
+            scope_id: params.scope_id || null,
+            uses_remaining: params.lifetime === "once" && params.allowed ? 1 : null,
+          });
+          allowAllCmdGrant = {
+            ...allowAllCmdGrant,
+            session_id: params.session_id,
+            updated_by: params.actor || "desktop-ui",
+            capability_grants: capabilityGrants,
+          };
+          return JSON.parse(JSON.stringify(allowAllCmdGrant));
+        }
+        case "permissions.capability_grants.revoke": {
+          const grantId = params.grant_id;
+          const capability = params.capability;
+          const resource = params.resource;
+          allowAllCmdGrant = {
+            ...allowAllCmdGrant,
+            session_id: params.session_id,
+            updated_by: params.actor || "desktop-ui",
+            capability_grants: (allowAllCmdGrant.capability_grants || []).filter((item) => {
+              if (grantId && item.id === grantId) {
+                return false;
+              }
+              if (capability && item.capability === capability) {
+                return resource ? item.resource !== resource : false;
+              }
+              return true;
+            }),
+          };
+          return JSON.parse(JSON.stringify(allowAllCmdGrant));
+        }
         case "providers.list":
           return [
             ...openaiCompatibleSettings.providers.map((item) => item.provider_name),

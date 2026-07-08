@@ -2,14 +2,21 @@
 
 ## Muc tieu
 
-Ghi thu tu phat trien app theo dung uu tien hien tai:
+Ghi thu tu phat trien app theo dung uu tien hien tai.
 
-1. core truoc;
-2. tooling cho agent va permission/audit surface tiep theo;
-3. backend/protocol/provider/config phuc vu core va agent;
-4. UI sau cung khi backend da on;
-5. chat phai on va verify duoc truoc khi sang 3D engine;
-6. sau 3D engine moi den voice.
+Source-of-truth moi cho huong "desktop omni-agent" la
+`docs/notes/omni_agent_checklist.md`. File nay chi giu phase tong va trang
+thai hien co.
+
+Thu tu uu tien da chot ngay 2026-07-08:
+
+1. core agent runtime;
+2. desktop UI;
+3. permission/tools;
+4. memory;
+5. plugin/persona ecosystem;
+6. 3D avatar/model loading;
+7. release hardening.
 
 ## Quy tac dat status
 
@@ -17,17 +24,20 @@ Ghi thu tu phat trien app theo dung uu tien hien tai:
 - `(almost done, check again + <docsfile>)` = da gan xong nhung con can verify lai, hoac con 1-2 chot nho.
 - `(deferred)` = co y tuong/huong, nhung chua phai giai doan hien tai.
 
-## Phase 1: Core chat engine `(almost done, check again + runtime_flow_map.md)`
+## Phase 1: Core agent runtime `(in progress, check + omni_agent_checklist.md)`
 
 ### Muc tieu con lai
 
-- giu conversation loop, tool loop, cancel/shutdown, va prompt injection on dinh;
-- giu config/route/prompt profile ro rang;
-- giu permission boundary va audit trail ro rang.
-- CLI chat that qua `localhost.chat` da verify duoc; phan con lai la hardening va lifecycle xung quanh desktop/package.
+- Tach agent run state khoi generic chat.
+- Them durable/resumable run record: plan, tool calls, approvals, verification.
+- Giu conversation loop, tool loop, cancel/shutdown, va prompt injection on dinh.
+- Giu config/route/prompt profile ro rang.
+- Giu permission boundary va audit trail ro rang.
+- CLI chat that qua `localhost.chat` da verify duoc; phan con lai la agent-runtime hardening va lifecycle xung quanh desktop/package.
 
 ### Sub-roadmap
 
+- `docs/notes/omni_agent_checklist.md`
 - `docs/notes/runtime_flow_map.md`
 - `docs/notes/provider_and_prompt_config.md`
 - `docs/notes/permissions_and_safety.md`
@@ -41,69 +51,21 @@ Ghi thu tu phat trien app theo dung uu tien hien tai:
 - `tests/test_conversation.py`
 - `tests/test_transport.py`
 
-## Phase 2: Agent tooling surface `(almost done, check again + agent_roadmap.md)`
+## Phase 2: Desktop shell / UI `(in progress, check + desktop_bridge_status.md)`
 
 ### Muc tieu con lai
 
-- chot tool surface cho agent/coding workflow;
-- giu transport/contract ro rang cho tool calls, permission checks, va audit;
-- uu tien nhung nang luc giup agent lam viec on dinh truoc khi mo rong them UX provider.
+- Desktop shell phai la control surface cho agent runs, permission, plugins,
+  personas, memory, provider, va diagnostics.
+- Giu packaged path va debug path dong bo.
+- Giam drift giua `desktop/src/app.js` va `desktop/src/runtime.js` truoc khi them UI lon.
+- Preview/headless desktop controller da chat that qua `localhost.chat`; viec
+  con lai la Tauri packaged path, lifecycle server local, va UI chat/agent
+  end-to-end.
 
 ### Sub-roadmap
 
-- `docs/notes/agent_roadmap.md`
-- `docs/notes/runtime_flow_map.md`
-- `docs/notes/permissions_and_safety.md`
-
-### File chinh
-
-- `src/yue_core/tools.py`
-- `src/yue_core/permissions.py`
-- `src/yue_core/audit.py`
-- `src/yue_core/contracts.py`
-- `src/yue_core/transport.py`
-- `tests/test_tools.py`
-- `tests/test_permissions.py`
-
-## Phase 3: Backend/provider stack `(almost done, check again + provider_and_prompt_config.md)`
-
-### Muc tieu con lai
-
-- provider routing theo `chat` va `coding_agent`;
-- OpenAI-compatible layer cho OpenAI/Google/OpenRouter/Ollama/LM Studio/llama.cpp/custom;
-- direct Claude path qua Anthropic Messages API;
-- provider health va runtime settings editor;
-- Local host OpenAI-compatible server tai `127.0.0.1:8080` la local path uu tien cao nhat trong giai doan nay;
-- `LM Studio` la local path phu; editor `llama.cpp` rieng de sau, khong phai blocker cho core.
-
-### Sub-roadmap
-
-- `docs/notes/provider_and_prompt_config.md`
-- `docs/notes/model_runtime_direction.md`
-- `docs/notes/hardware_constraints.md`
-- `docs/notes/validation_commands.md`
-
-### File chinh
-
-- `src/yue_core/config.py`
-- `src/yue_core/providers.py`
-- `src/yue_core/openai_compat.py`
-- `src/yue_core/cli.py`
-- `plugins/openai_compatible/plugin.py`
-- `plugins/llama_cpp/plugin.py`
-- `config.example.toml`
-
-## Phase 4: Desktop shell / UI `(almost done, check again + desktop_bridge_status.md)`
-
-### Muc tieu con lai
-
-- desktop shell phai render duoc provider health va runtime settings;
-- packaged path va debug path phai dong bo;
-- UI phai doc dung snapshot/state tu core.
-- preview/headless desktop controller da chat that qua `localhost.chat`; viec con lai la Tauri packaged path, lifecycle server local, va UI chat that end-to-end.
-
-### Sub-roadmap
-
+- `docs/notes/omni_agent_checklist.md`
 - `docs/notes/desktop_bridge_status.md`
 - `docs/notes/runtime_flow_map.md`
 - `docs/notes/validation_commands.md`
@@ -118,37 +80,87 @@ Ghi thu tu phat trien app theo dung uu tien hien tai:
 - `desktop/src/app.js`
 - `desktop/src/runtime.js`
 
-## Phase 5: Chat stabilization gate `(almost done, check again + validation_commands.md)`
+## Phase 3: Permission/tools foundation `(in progress, check + omni_agent_checklist.md)`
 
 ### Muc tieu con lai
 
-- chat phai chay on dinh tren core + backend + UI;
-- kiem tra lai test, packaged path, va cleanup behavior;
-- chi khi phase nay on dinh moi chot huong 3D engine.
-- `providers-health`, CLI chat, va `desktop-demo --headless-smoke-test` da co proof that cho local host path `127.0.0.1:8080`.
+- Mo rong permission tu profile/tool-name sang capability/resource/scope.
+- Them approval lifetime: once, run, conversation, session, always-for-scope.
+- Giu built-in tools it nhung tot; de plugin/community mo rong tool surface.
+- Them tool health, preflight, dry-run, audit, va output-bound contracts.
 
 ### Sub-roadmap
 
-- `docs/notes/validation_commands.md`
-- `docs/notes/desktop_bridge_status.md`
+- `docs/notes/omni_agent_checklist.md`
+- `docs/notes/permissions_and_safety.md`
+- `docs/notes/runtime_flow_map.md`
 
-### Done khi
+### File chinh
 
-- JS tests pass;
-- Python tests pass;
-- Rust tests pass;
-- chat send/stream/tool-call loop can verify that.
+- `src/yue_core/contracts.py`
+- `src/yue_core/permissions.py`
+- `src/yue_core/tools.py`
+- `src/yue_core/builtin_tools.py`
+- `src/yue_core/audit.py`
+- `src/yue_core/transport.py`
+- `tests/test_permissions.py`
+- `tests/test_tools.py`
 
-## Phase 6: 3D engine / model load `(deferred until chat is stable)`
+## Phase 4: Memory / observer `(not implemented, design first)`
+
+### Muc tieu con lai
+
+- Working, episodic, semantic/profile memory.
+- Privacy, retention, retrieval, source attribution, va user controls.
+- Observer nhieu tang: app/window metadata, screenshot/OCR on demand, vision on demand.
+- Khong lam always-on vision khi permission/privacy UI chua ro.
+
+### Sub-roadmap
+
+- `docs/notes/omni_agent_checklist.md`
+- `docs/notes/memory_and_observer_roadmap.md`
+- `docs/notes/permissions_and_safety.md`
+
+### File chinh
+
+- Chua co module memory/observer rieng. Phai thiet ke schema/store truoc khi code.
+
+## Phase 5: Plugin/persona ecosystem `(local plugin loader exists, installer missing)`
+
+### Muc tieu con lai
+
+- Plugin install from GitHub URL, `owner/repo`, curated name, or local folder.
+- Manifest declares capability/resource needs and trust level.
+- Install disabled by default; enable only after user approval.
+- Move untrusted/community plugins out of process.
+- Persona package schema for shareable character/personality configs.
+
+### Sub-roadmap
+
+- `docs/notes/omni_agent_checklist.md`
+- `docs/PLUGIN_DEVELOPMENT.md`
+
+### File chinh
+
+- `src/yue_core/plugins.py`
+- `src/yue_core/contracts.py`
+- `src/yue_core/config.py`
+- `docs/PLUGIN_DEVELOPMENT.md`
+- `tests/test_plugins.py`
+
+## Phase 6: 3D engine / model load `(deferred until core/plugin/memory are stable)`
 
 ### Muc tieu
 
-- load model 3D;
-- render avatar engine;
-- dong bo state cua avatar voi chat/observer.
+- Load model 3D lightweight.
+- Investigate VRM / VTube-like workflow compatibility before implementation.
+- Support custom loader adapter interface if practical.
+- Dong bo avatar state voi chat/tool/observer events.
+- Renderer optional; Yue must still run without avatar.
 
 ### Sub-roadmap
 
+- `docs/notes/omni_agent_checklist.md`
 - `docs/notes/product_direction.md`
 - `docs/notes/memory_and_observer_roadmap.md`
 
@@ -159,25 +171,29 @@ Ghi thu tu phat trien app theo dung uu tien hien tai:
 - `desktop/src/runtime.js`
 - `desktop/src/app.js`
 
-## Phase 7: Voice `(deferred)`
+## Phase 7: Release hardening `(deferred until phases 1-5 are stable)`
 
 ### Muc tieu
 
-- STT;
-- TTS;
-- interruption/cancel;
-- stream audio pipeline.
+- Packaged desktop proof.
+- Installer proof.
+- Core child lifecycle recovery.
+- Config/database migration.
+- Privacy/security proof.
+- Export/import config, personas, plugin list, and memory.
 
 ### Sub-roadmap
 
-- `docs/notes/voice_deferred_scope.md`
+- `docs/notes/omni_agent_checklist.md`
+- `docs/notes/validation_commands.md`
+- `docs/notes/desktop_bridge_status.md`
 
 ## Thu tu de agent sau biet bat dau o dau
 
-1. Core chat engine.
-2. Agent tooling surface.
-3. Backend/provider stack.
-4. Desktop shell/UI.
-5. Chat stabilization gate.
+1. Core agent runtime.
+2. Desktop shell/UI.
+3. Permission/tools foundation.
+4. Memory/observer.
+5. Plugin/persona ecosystem.
 6. 3D engine/model load.
-7. Voice.
+7. Release hardening.

@@ -80,6 +80,46 @@ export class CoreProtocolClient {
     });
   }
 
+  startAgentRun(userRequest, options = {}) {
+    return this.#request("agents.runs.start", {
+      user_request: userRequest,
+      conversation_id: options.conversationId,
+      title: options.title,
+      provider_role: options.providerRole || "coding_agent",
+      run_id: options.runId,
+      actor: options.actor || "desktop-ui",
+      plan: options.plan || [],
+      metadata: options.metadata || {},
+    });
+  }
+
+  getAgentRun(runId) {
+    return this.#request("agents.runs.get", {
+      run_id: runId,
+    });
+  }
+
+  listAgentRuns(options = {}) {
+    return this.#request("agents.runs.list", {
+      limit: options.limit || 100,
+    });
+  }
+
+  updateAgentRunChecklist(runId, checklist) {
+    return this.#request("agents.runs.checklist.update", {
+      run_id: runId,
+      checklist,
+    });
+  }
+
+  updateAgentRunVerification(runId, verification) {
+    return this.#request("agents.runs.verification.update", {
+      run_id: runId,
+      status: verification.status,
+      summary: verification.summary || "",
+    });
+  }
+
   invokeMany(calls, options = {}) {
     return this.#request("tools.invoke_many", {
       calls,
@@ -99,6 +139,47 @@ export class CoreProtocolClient {
     return this.#request("permissions.allow_all_cmd.set", {
       session_id: sessionId,
       allowed: Boolean(allowed),
+      actor,
+    });
+  }
+
+  getCapabilityGrants(sessionId) {
+    return this.#request("permissions.capability_grants.get", {
+      session_id: sessionId,
+    });
+  }
+
+  setCapabilityGrant(
+    sessionId,
+    capability,
+    {
+      resource = "*",
+      allowed = true,
+      actor = "desktop-ui",
+      lifetime = "session",
+      scopeId,
+    } = {},
+  ) {
+    return this.#request("permissions.capability_grants.set", {
+      session_id: sessionId,
+      capability,
+      resource,
+      allowed: Boolean(allowed),
+      lifetime,
+      scope_id: scopeId,
+      actor,
+    });
+  }
+
+  revokeCapabilityGrant(
+    sessionId,
+    { grantId, capability, resource, actor = "desktop-ui" } = {},
+  ) {
+    return this.#request("permissions.capability_grants.revoke", {
+      session_id: sessionId,
+      grant_id: grantId,
+      capability,
+      resource,
       actor,
     });
   }

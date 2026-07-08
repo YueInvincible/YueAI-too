@@ -100,6 +100,29 @@ export class CoreSessionClient {
     return this.client.getAgentStarterPack(options);
   }
 
+  async startAgentRun(userRequest, options = {}) {
+    return this.client.startAgentRun(userRequest, {
+      ...options,
+      actor: options.actor || "desktop-ui",
+    });
+  }
+
+  async getAgentRun(runId) {
+    return this.client.getAgentRun(runId);
+  }
+
+  async listAgentRuns(options = {}) {
+    return this.client.listAgentRuns(options);
+  }
+
+  async updateAgentRunChecklist(runId, checklist) {
+    return this.client.updateAgentRunChecklist(runId, checklist);
+  }
+
+  async updateAgentRunVerification(runId, verification) {
+    return this.client.updateAgentRunVerification(runId, verification);
+  }
+
   async invokeMany(calls, options = {}) {
     return this.client.invokeMany(calls, {
       ...options,
@@ -113,6 +136,24 @@ export class CoreSessionClient {
 
   async setAllowAllCmd(allowed, actor = "desktop-ui") {
     return this.client.setAllowAllCmd(this.sessionId, allowed, actor);
+  }
+
+  async getCapabilityGrants() {
+    return this.client.getCapabilityGrants(this.sessionId);
+  }
+
+  async setCapabilityGrant(capability, options = {}) {
+    return this.client.setCapabilityGrant(this.sessionId, capability, {
+      ...options,
+      actor: options.actor || "desktop-ui",
+    });
+  }
+
+  async revokeCapabilityGrant(options = {}) {
+    return this.client.revokeCapabilityGrant(this.sessionId, {
+      ...options,
+      actor: options.actor || "desktop-ui",
+    });
   }
 
   async createConversation(title = "Yue Desktop") {
