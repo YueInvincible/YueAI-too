@@ -37,6 +37,12 @@ If the active Windows shell alters embedded JSON quotes, use
 intentionally simple for the first vertical slice and can later sit behind a
 local named-pipe or WebSocket adapter without changing core contracts.
 
+For agent clients, `tools.list` now returns per-tool runtime hints and
+`tools.guide` returns a compact coding-agent playbook built from the same core
+tool registry. The default `coding_agent` prompt profile also injects that
+guide into the transient system instruction so models get consistent tool usage
+rules from the runtime itself.
+
 ## Design principles
 
 - Deny by default for capabilities with side effects.

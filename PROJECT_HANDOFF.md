@@ -169,6 +169,7 @@ Chi giu 3 thu:
   - model bi chan cac action nguy hiem nhu `shell.exec`, `file.delete`, `process.kill`, `package.install` trong profile `assist`;
   - user/ui van co the di qua luong approval neu runtime bat interactive approval.
 - Default `coding_agent` prompt profile da co tool guidance mac dinh de model biet uu tien inspect/edit/verify flow.
+- Runtime gio da co them tool guide runtime-generated cho `coding_agent`, noi truc tiep vao system instruction va expose qua JSONL method `tools.guide`, de prompt/tool catalog/client docs cung mot source-of-truth.
 - Tool result dua nguoc vao conversation tool-loop da co payload co cau truc hon:
   - `request_id`
   - `tool_name`

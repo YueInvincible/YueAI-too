@@ -9,6 +9,7 @@ from uuid import uuid4
 from .app import YueCore
 from .contracts import CoreEvent, PermissionOutcome
 from .tool_catalog import filter_tool_specs_for_role
+from .tool_guidance import build_tool_guide, render_tool_guide_text
 
 
 class JsonLineServer:
@@ -71,6 +72,10 @@ class JsonLineServer:
                 payload = result.to_dict()
             elif method == "tools.list":
                 provider_role = params.get("provider_role")
+                specs = filter_tool_specs_for_role(
+                    self.core.registry.list_specs(),
+                    str(provider_role) if provider_role is not None else None,
+                )
                 payload = [
                     {
                         "name": spec.name,
@@ -83,11 +88,22 @@ class JsonLineServer:
                         "output_kind": spec.output_kind.value,
                         "metadata": spec.runtime_metadata(),
                     }
-                    for spec in filter_tool_specs_for_role(
-                        self.core.registry.list_specs(),
-                        str(provider_role) if provider_role is not None else None,
-                    )
+                    for spec in specs
                 ]
+            elif method == "tools.guide":
+                provider_role = params.get("provider_role")
+                specs = filter_tool_specs_for_role(
+                    self.core.registry.list_specs(),
+                    str(provider_role) if provider_role is not None else None,
+                )
+                payload = build_tool_guide(
+                    specs,
+                    provider_role=str(provider_role) if provider_role is not None else None,
+                )
+                payload["text"] = render_tool_guide_text(
+                    specs,
+                    provider_role=str(provider_role) if provider_role is not None else None,
+                )
             elif method == "tools.invoke":
                 result = await self.core.invoke(
                     params["name"],

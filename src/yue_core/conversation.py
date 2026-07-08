@@ -30,6 +30,7 @@ from .errors import YueCoreError
 from .events import EventBus
 from .providers import ModelProviderRegistry
 from .tool_catalog import filter_tool_specs_for_role
+from .tool_guidance import render_tool_guide_text
 from .tools import ToolExecutor, ToolRegistry
 
 
@@ -828,10 +829,17 @@ class ConversationOrchestrator:
     def _system_instruction(self, provider_role: str) -> str:
         prompt_profile = self.resolve_prompt_profile(provider_role)
         profile = self.prompt_profiles.get(prompt_profile, {})
+        tool_instruction = profile.get("tool_instruction", "").strip()
+        if provider_role == "coding_agent":
+            guide = render_tool_guide_text(self._model_tools(provider_role), provider_role=provider_role)
+            if guide:
+                tool_instruction = (
+                    f"{tool_instruction}\n\n{guide}" if tool_instruction else guide
+                )
         parts = [
             ("System", profile.get("system_instruction", "").strip()),
             ("Personality", profile.get("personality", "").strip()),
-            ("Tool usage", profile.get("tool_instruction", "").strip()),
+            ("Tool usage", tool_instruction),
             ("Response style", profile.get("response_instruction", "").strip()),
         ]
         sections = [f"{label}:\n{value}" for label, value in parts if value]

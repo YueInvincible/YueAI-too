@@ -140,7 +140,8 @@ Desktop shell UI
     - cancel/shutdown;
     - prompt-profile system injection.
   - `conversation.tool.requested` hien da carry them `request_id` de desktop co the map approval/tool lifecycle ngay ca truoc khi `tool.started`.
-- `coding_agent` request gio duoc cat gon tool catalog ngay tai runtime: uu tien surface alias on dinh `workspace_read` / `workspace_edit` / `shell_run` / `shell_session` / `git_diff` / `todo_update` / `ask_user_approval` thay vi dua ca lop tool cu.
+  - `coding_agent` request gio duoc cat gon tool catalog ngay tai runtime: uu tien surface alias on dinh `workspace_read` / `workspace_edit` / `shell_run` / `shell_session` / `git_diff` / `todo_update` / `ask_user_approval` thay vi dua ca lop tool cu.
+  - system instruction cho `coding_agent` gio noi them 1 tool guide runtime-generated tu chinh catalog da filter nay, de prompt va transport cung dung 1 source-of-truth cho tool usage.
 
 - `src/yue_core/config.py`
   - source of truth cho shape config.
@@ -152,6 +153,7 @@ Desktop shell UI
   - frontend/desktop khong goi truc tiep `YueCore`; no di qua file nay.
   - tool/permission methods moi da co:
     - `tools.list`
+    - `tools.guide`
     - `tools.invoke_many`
     - `permissions.allow_all_cmd.get`
     - `permissions.allow_all_cmd.set`
@@ -161,7 +163,8 @@ Desktop shell UI
     - `approval.*`
     - `tool.*`
   - `tools.list` gio tra ca `model_description` ngoai `description` de agent client nhan du hint ve scrub/parallel/risk contract.
-- `tools.list` cung nhan `provider_role` tuy chon de lay dung tool catalog da duoc policy filter cho `coding_agent`; role nay hien uu tien alias underscore, con ten dotted legacy van duoc giu cho transport/UI flow cu.
+  - `tools.guide` tra them 1 playbook co cau truc cho agent client, tap trung vao workflow inspect/edit/verify va rule "khi nao dung / khi nao tranh" cho tool surface uu tien.
+  - `tools.list` cung nhan `provider_role` tuy chon de lay dung tool catalog da duoc policy filter cho `coding_agent`; role nay hien uu tien alias underscore, con ten dotted legacy van duoc giu cho transport/UI flow cu.
 
 - `src/yue_core/openai_compat.py`
   - source of truth cho adapter provider OpenAI-compatible.
@@ -438,6 +441,7 @@ Frontend methods trong `protocol.js`:
 - `respondApproval`
 - `getToolActivitySnapshot`
 - `listTools`
+- frontend module hien chua can wrapper rieng cho `tools.guide`, nhung JSONL method nay da co san neu desktop/agent client muon render tool playbook runtime-generated.
 - `invokeMany`
 - `getAllowAllCmd`
 - `setAllowAllCmd`
@@ -458,6 +462,7 @@ Frontend methods trong `protocol.js`:
 Core JSONL methods cung da expose tool surface:
 
 - `tools.list`
+- `tools.guide`
 - `tools.invoke`
 - `tools.invoke_many`
 - `tools.cancel`
@@ -469,6 +474,7 @@ Moi method:
 - transport serializes envelope JSONL
 - `JsonLineServer.handle_line(...)` xu ly method
 - `tools.list` hien tra them `output_kind` + `metadata` de UI/agent client co the doc runtime hints.
+- `tools.guide` tra them `workflow[]`, `tools[]`, va `text` de client co the hien huong dan dung tool cung source-of-truth voi runtime prompt.
 - `tools.invoke_many` cho phep batch tool calls; neu `parallel = true` thi chi chay song song cho tool co `parallel_safe = true` va `mutates_state = false`.
 
 ### Tu core sang frontend

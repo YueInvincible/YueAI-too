@@ -258,6 +258,9 @@ class ConversationOrchestratorTests(unittest.IsolatedAsyncioTestCase):
             "Inspect relevant files before editing.",
             request.messages[0].content,
         )
+        self.assertIn("Coding agent tool guide:", request.messages[0].content)
+        self.assertIn("workspace_read:", request.messages[0].content)
+        self.assertIn("shell_run:", request.messages[0].content)
 
     async def test_coding_agent_request_uses_preferred_tool_catalog(self):
         provider = RecordingProvider()

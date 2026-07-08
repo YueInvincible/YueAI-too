@@ -144,6 +144,33 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("shell.exec", names)
         self.assertNotIn("approval.request", names)
 
+    async def test_tools_guide_returns_coding_agent_playbook(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            core = YueCore(settings)
+            server = JsonLineServer(core)
+            async with core:
+                response = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "guide",
+                            "method": "tools.guide",
+                            "params": {"provider_role": "coding_agent"},
+                        }
+                    )
+                )
+        self.assertTrue(response["ok"])
+        self.assertEqual(response["result"]["provider_role"], "coding_agent")
+        self.assertIn("Start with read-only inspection", response["result"]["workflow"][0])
+        tool_names = {item["name"] for item in response["result"]["tools"]}
+        self.assertIn("workspace_read", tool_names)
+        self.assertIn("workspace_edit", tool_names)
+        self.assertIn("shell_run", tool_names)
+        self.assertIn("ask_user_approval", tool_names)
+        self.assertIn("Coding agent tool guide:", response["result"]["text"])
+        self.assertIn("workspace_read:", response["result"]["text"])
+
     async def test_conversation_round_trip(self):
         with workspace_temp_dir() as temp:
             settings = Settings()
