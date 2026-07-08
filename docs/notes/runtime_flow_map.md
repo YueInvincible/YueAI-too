@@ -180,6 +180,7 @@ Desktop shell UI
   - `agents.bundle` gio con kem `codex_manifest`: ban rut gon de feed sang agent client theo style Codex, gom system prompt, workflow, approval/parallellism rules, va tool rules da filter.
   - `agents.starter_pack` build tren cung source-of-truth do, nhung tra them payload copy-ready cho nguoi/agent client: starter prompt, integration checklist, va 1 blob markdown de paste thang.
   - CLI gio co `export-agent-starter-pack` de xuat payload nay truc tiep tu terminal ma khong can mo desktop shell.
+  - CLI format hien co gom ca full pack va focused slices: `manifest-json`, `system-prompt`, `starter-prompt`, `checklist`.
   - `tools.list` cung nhan `provider_role` tuy chon de lay dung tool catalog da duoc policy filter cho `coding_agent`; role nay hien uu tien alias underscore, con ten dotted legacy van duoc giu cho transport/UI flow cu.
 
 - `src/yue_core/openai_compat.py`

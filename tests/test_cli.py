@@ -6,7 +6,7 @@ from argparse import Namespace
 from unittest.mock import patch
 
 from tests.support import workspace_temp_dir
-from yue_core.cli import _write_stdout_text, run
+from yue_core.cli import _render_agent_starter_pack_output, _write_stdout_text, run
 
 
 class CliTests(unittest.TestCase):
@@ -56,6 +56,23 @@ class CliTests(unittest.TestCase):
         self.assertEqual(payload["provider_role"], "coding_agent")
         self.assertIn("starter_prompt", payload)
         self.assertIn("codex_manifest", payload)
+
+    def test_render_agent_starter_pack_output_supports_focused_formats(self):
+        payload = {
+            "starter_prompt": "starter",
+            "system_prompt": "system",
+            "tool_manifest_json": "{\n  \"provider_role\": \"coding_agent\"\n}",
+            "integration_checklist": ["first", "second"],
+            "text": "full text",
+        }
+        self.assertEqual(_render_agent_starter_pack_output(payload, "text"), "full text")
+        self.assertEqual(_render_agent_starter_pack_output(payload, "starter-prompt"), "starter")
+        self.assertEqual(_render_agent_starter_pack_output(payload, "system-prompt"), "system")
+        self.assertIn("\"provider_role\"", _render_agent_starter_pack_output(payload, "manifest-json"))
+        self.assertEqual(
+            _render_agent_starter_pack_output(payload, "checklist"),
+            "- first\n- second",
+        )
 
     @staticmethod
     def _run_async(coro):
