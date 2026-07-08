@@ -88,6 +88,10 @@ export class CoreSessionClient {
     return this.client.listTools();
   }
 
+  async getToolsGuide(options = {}) {
+    return this.client.getToolsGuide(options);
+  }
+
   async invokeMany(calls, options = {}) {
     return this.client.invokeMany(calls, {
       ...options,

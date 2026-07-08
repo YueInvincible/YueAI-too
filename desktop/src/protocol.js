@@ -61,6 +61,12 @@ export class CoreProtocolClient {
     });
   }
 
+  getToolsGuide(options = {}) {
+    return this.#request("tools.guide", {
+      provider_role: options.providerRole,
+    });
+  }
+
   invokeMany(calls, options = {}) {
     return this.#request("tools.invoke_many", {
       calls,

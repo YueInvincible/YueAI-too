@@ -979,6 +979,7 @@ select.message-input {
 
 .provider-status-list,
 .tool-catalog-list,
+.tool-guide-list,
 .tool-activity-list,
 .parallel-inspect-results,
 .headers-list,
@@ -988,6 +989,7 @@ select.message-input {
 }
 
 .tool-catalog-list,
+.tool-guide-list,
 .message-log {
   min-height: 0;
   overflow: auto;
@@ -996,6 +998,7 @@ select.message-input {
 
 .provider-status-list:empty::before,
 .tool-catalog-list:empty::before,
+.tool-guide-list:empty::before,
 .tool-activity-list:empty::before,
 .parallel-inspect-results:empty::before,
 .message-log:empty::before {
@@ -1014,6 +1017,7 @@ select.message-input {
 
 .provider-status-row,
 .tool-catalog-row,
+.tool-guide-row,
 .tool-activity-row,
 .parallel-inspect-row,
 .approval-row,
@@ -1080,6 +1084,24 @@ select.message-input {
   border-color: rgba(81, 210, 255, 0.24);
   background: rgba(81, 210, 255, 0.08);
   color: var(--muted-2);
+}
+
+.tool-guide-workflow-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0 0 0 18px;
+}
+
+.tool-guide-workflow-item {
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.tool-guide-line {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
 }
 
 .message-group,

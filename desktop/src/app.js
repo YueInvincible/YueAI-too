@@ -25,6 +25,7 @@ import {
   applyToolActivitySnapshot,
   applyToolActivityStatus,
   applyToolsCatalog,
+  applyToolGuide,
   defaultDesktopViewState,
   expandInspectorRunGroup,
   expandRunGroup,
@@ -114,6 +115,9 @@ const parallelInspectEndLineInput = document.querySelector("#parallel-inspect-en
 const parallelInspectResults = document.querySelector("#parallel-inspect-results");
 const toolCatalogStatusLine = document.querySelector("#tool-catalog-status-line");
 const toolCatalogList = document.querySelector("#tool-catalog-list");
+const toolGuideStatusLine = document.querySelector("#tool-guide-status-line");
+const toolGuideWorkflowList = document.querySelector("#tool-guide-workflow-list");
+const toolGuideList = document.querySelector("#tool-guide-list");
 const defaultProviderInput = document.querySelector("#default-provider-input");
 const chatProviderInput = document.querySelector("#chat-provider-input");
 const chatProfileInput = document.querySelector("#chat-profile-input");
@@ -250,6 +254,7 @@ function render() {
   allowAllCmdStatusLine.textContent = state.allowAllCmdStatus;
   parallelInspectStatusLine.textContent = state.parallelInspectStatus;
   toolCatalogStatusLine.textContent = state.toolCatalogStatus;
+  toolGuideStatusLine.textContent = state.toolGuideStatus;
   allowAllCmdToggle.checked = Boolean(state.allowAllCmd);
   bridgeLine.title = state.bridgeLastError || state.bridgeNote;
   consolePanel.classList.toggle("hidden", !state.consoleOpen);
@@ -431,6 +436,51 @@ function render() {
 
     row.append(head, description, meta, contract);
     toolCatalogList.append(row);
+  }
+
+  toolGuideWorkflowList.replaceChildren();
+  for (const step of state.toolGuide?.workflow || []) {
+    const item = document.createElement("li");
+    item.className = "tool-guide-workflow-item";
+    item.textContent = step;
+    toolGuideWorkflowList.append(item);
+  }
+
+  toolGuideList.replaceChildren();
+  for (const item of state.toolGuide?.tools || []) {
+    const row = document.createElement("article");
+    row.className = "tool-guide-row";
+
+    const head = document.createElement("div");
+    head.className = "tool-catalog-head";
+
+    const name = document.createElement("div");
+    name.className = "tool-catalog-name";
+    name.textContent = item.name || "unknown tool";
+
+    const badges = document.createElement("div");
+    badges.className = "tool-catalog-badges";
+    badges.append(
+      createToolBadge(item.output_kind || "structured"),
+      createToolBadge(item.parallel_safe ? "parallel_safe" : "sequential_only", item.parallel_safe ? "safe" : "risky"),
+      createToolBadge(item.mutates_state ? "mutates_state" : "read_only", item.mutates_state ? "risky" : "safe"),
+    );
+    head.append(name, badges);
+
+    const summary = document.createElement("div");
+    summary.className = "tool-catalog-description";
+    summary.textContent = item.summary || "No summary";
+
+    const whenToUse = document.createElement("div");
+    whenToUse.className = "tool-guide-line";
+    whenToUse.textContent = `Use when: ${item.when_to_use || "n/a"}`;
+
+    const avoidWhen = document.createElement("div");
+    avoidWhen.className = "tool-guide-line";
+    avoidWhen.textContent = `Avoid when: ${item.avoid_when || "n/a"}`;
+
+    row.append(head, summary, whenToUse, avoidWhen);
+    toolGuideList.append(row);
   }
 
   parallelInspectResults.replaceChildren();
@@ -1277,6 +1327,7 @@ async function bootstrap() {
   state = applyPendingApprovals(state, await client.listPendingApprovals());
   state = applyToolActivitySnapshot(state, await client.getToolActivitySnapshot());
   state = applyToolsCatalog(state, await client.listTools());
+  state = applyToolGuide(state, await client.getToolsGuide({ providerRole: "coding_agent" }));
   state = applyAllowAllCmdGrant(state, await client.getAllowAllCmd(sessionId));
   if (bridgeCommands) {
     pendingRuntimeInfo = await bridgeCommands.runtimeInfo();

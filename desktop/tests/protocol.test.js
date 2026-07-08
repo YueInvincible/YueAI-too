@@ -33,6 +33,8 @@ import {
   applyToolActivityStatus,
   applyToolCatalogStatus,
   applyToolsCatalog,
+  applyToolGuide,
+  applyToolGuideStatus,
   createActiveProviderDraft,
   defaultDesktopViewState,
   findLatestToolActivityForRun,
@@ -78,6 +80,7 @@ test("protocol client dispatches desktop methods through transport", async () =>
   await client.getToolActivitySnapshot();
   await client.listTools();
   await client.listTools({ providerRole: "coding_agent" });
+  await client.getToolsGuide({ providerRole: "coding_agent" });
   await client.invokeMany(
     [{ name: "workspace.read", arguments: { path: "README.md" } }],
     { parallel: true, actor: "desktop-ui", sessionId: "desktop-ui" },
@@ -100,6 +103,7 @@ test("protocol client dispatches desktop methods through transport", async () =>
       "tool.activity.snapshot",
       "tools.list",
       "tools.list",
+      "tools.guide",
       "tools.invoke_many",
       "permissions.allow_all_cmd.get",
       "permissions.allow_all_cmd.set",
@@ -113,8 +117,9 @@ test("protocol client dispatches desktop methods through transport", async () =>
   assert.equal(calls[1].params.command, "console.toggle");
   assert.equal(calls[3].params.approval_id, "approval-1");
   assert.equal(calls[6].params.provider_role, "coding_agent");
-  assert.equal(calls[7].params.parallel, true);
-  assert.equal(calls[9].params.allowed, true);
+  assert.equal(calls[7].params.provider_role, "coding_agent");
+  assert.equal(calls[8].params.parallel, true);
+  assert.equal(calls[10].params.allowed, true);
 });
 
 test("mock transport supports the current desktop shell flow", async () => {
@@ -240,6 +245,9 @@ test("mock transport supports the current desktop shell flow", async () => {
   assert.equal((await client.listPendingApprovals()).length, 0);
   const tools = await client.listTools();
   assert.equal(tools[0].metadata.parallel_safe, true);
+  const toolGuide = await client.getToolsGuide({ providerRole: "coding_agent" });
+  assert.equal(toolGuide.provider_role, "coding_agent");
+  assert.equal(toolGuide.tools[0].name, "workspace_read");
   const invoked = await client.invokeMany(
     [{ name: "workspace.read", arguments: { path: "src/demo.js", start_line: 1, end_line: 5 } }],
     { parallel: true, actor: "desktop-ui", sessionId: "desktop-preview" },
@@ -395,6 +403,12 @@ test("desktop view-state helpers preserve immutable updates", () => {
     },
   ]);
   const withToolStatus = applyToolCatalogStatus(withToolsCatalog, "Tool catalog synced");
+  const withToolGuide = applyToolGuide(withToolStatus, {
+    provider_role: "coding_agent",
+    workflow: ["Inspect first"],
+    tools: [{ name: "workspace_read", summary: "Read files" }],
+  });
+  const withToolGuideStatus = applyToolGuideStatus(withToolGuide, "Tool guide synced");
   const withGrant = applyAllowAllCmdGrant(withToolStatus, {
     allow_all_cmd: true,
     updated_by: "desktop-ui",
@@ -462,6 +476,9 @@ test("desktop view-state helpers preserve immutable updates", () => {
   assert.equal(withApprovalStatus.approvalStatus, "Approval denied");
   assert.equal(withToolsCatalog.toolsCatalog.length, 1);
   assert.equal(withToolStatus.toolCatalogStatus, "Tool catalog synced");
+  assert.equal(withToolGuide.toolGuide.tools[0].name, "workspace_read");
+  assert.equal(withToolGuide.toolGuideStatus, "1 preferred tool in playbook");
+  assert.equal(withToolGuideStatus.toolGuideStatus, "Tool guide synced");
   assert.equal(withGrant.allowAllCmd, true);
   assert.equal(withGrant.allowAllCmdUpdatedBy, "desktop-ui");
   assert.equal(withGrantStatus.allowAllCmdStatus, "Grant syncing");
@@ -909,9 +926,23 @@ test("core session client preserves session id across desktop requests", async (
                     {
                       name: "workspace.read",
                       output_kind: "file_content",
-                      metadata: { parallel_safe: true, mutates_state: false },
+                        metadata: { parallel_safe: true, mutates_state: false },
                     },
                   ]
+                : request.method === "tools.guide"
+                  ? {
+                      provider_role: request.params.provider_role || null,
+                      workflow: ["Inspect first"],
+                      tools: [
+                        {
+                          name: "workspace_read",
+                          summary: "Read files",
+                          when_to_use: "Inspect target files",
+                          avoid_when: "When you need to edit",
+                        },
+                      ],
+                      text: "Coding agent tool guide",
+                    }
                 : request.method === "tools.invoke_many"
                   ? {
                       parallel: request.params.parallel,
@@ -1047,6 +1078,7 @@ test("core session client preserves session id across desktop requests", async (
     ],
   });
   await session.listTools();
+  await session.getToolsGuide({ providerRole: "coding_agent" });
   await session.invokeMany(
     [{ name: "workspace.read", arguments: { path: "README.md" } }],
     { parallel: true },
@@ -1067,11 +1099,13 @@ test("core session client preserves session id across desktop requests", async (
   assert.equal(lines[10].method, "settings.providers.anthropic_messages.get");
   assert.equal(lines[11].method, "settings.providers.anthropic_messages.update");
   assert.equal(lines[12].method, "tools.list");
-  assert.equal(lines[13].method, "tools.invoke_many");
-  assert.equal(lines[13].params.session_id, "desktop-ui");
-  assert.equal(lines[14].method, "permissions.allow_all_cmd.get");
-  assert.equal(lines[15].method, "permissions.allow_all_cmd.set");
-  assert.equal(lines[15].params.allowed, true);
+  assert.equal(lines[13].method, "tools.guide");
+  assert.equal(lines[13].params.provider_role, "coding_agent");
+  assert.equal(lines[14].method, "tools.invoke_many");
+  assert.equal(lines[14].params.session_id, "desktop-ui");
+  assert.equal(lines[15].method, "permissions.allow_all_cmd.get");
+  assert.equal(lines[16].method, "permissions.allow_all_cmd.set");
+  assert.equal(lines[16].params.allowed, true);
 });
 
 test("core session client forwards events to subscribers", async () => {

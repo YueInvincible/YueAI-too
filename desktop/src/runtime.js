@@ -71,6 +71,12 @@
       });
     }
 
+    getToolsGuide(options = {}) {
+      return this.#request("tools.guide", {
+        provider_role: options.providerRole,
+      });
+    }
+
     invokeMany(calls, options = {}) {
       return this.#request("tools.invoke_many", {
         calls,
@@ -227,6 +233,8 @@
       approvalStatus: "No pending approvals",
       toolsCatalog: [],
       toolCatalogStatus: "Tool catalog unavailable",
+      toolGuide: null,
+      toolGuideStatus: "Tool playbook unavailable",
       allowAllCmd: false,
       allowAllCmdUpdatedBy: "none",
       allowAllCmdStatus: "Session shell grant disabled",
@@ -537,6 +545,26 @@
     return {
       ...state,
       toolCatalogStatus: toolCatalogStatus || state.toolCatalogStatus,
+    };
+  }
+
+  function applyToolGuide(state, toolGuide) {
+    const nextGuide = toolGuide ? JSON.parse(JSON.stringify(toolGuide)) : null;
+    const toolCount = nextGuide?.tools?.length || 0;
+    return {
+      ...state,
+      toolGuide: nextGuide,
+      toolGuideStatus:
+        toolCount > 0
+          ? `${toolCount} preferred tool${toolCount === 1 ? "" : "s"} in playbook`
+          : "Tool playbook unavailable",
+    };
+  }
+
+  function applyToolGuideStatus(state, toolGuideStatus) {
+    return {
+      ...state,
+      toolGuideStatus: toolGuideStatus || state.toolGuideStatus,
     };
   }
 
@@ -1206,6 +1234,49 @@
         },
       },
     ];
+    const toolGuide = {
+      provider_role: "coding_agent",
+      workflow: [
+        "Start with read-only inspection. Read or search narrowly before editing.",
+        "Use parallel reads only for independent inspection calls that are marked parallel-safe.",
+        "Keep edits and shell actions sequential. Re-read affected files after non-trivial changes.",
+        "Use approval before proposing or attempting risky actions outside the normal edit flow.",
+        "Verify with the smallest command or diff that proves the change.",
+      ],
+      tools: [
+        {
+          name: "workspace_read",
+          summary: "Read file content with optional line bounds.",
+          when_to_use: "Use for exact inspection after locating the target file.",
+          avoid_when: "Do not read huge files blindly; narrow by path or line range first.",
+          output_kind: "file_content",
+          parallel_safe: true,
+          mutates_state: false,
+          risk: "low",
+        },
+        {
+          name: "workspace_edit",
+          summary: "Replace an exact block in one workspace file.",
+          when_to_use: "Use for surgical edits with known search text.",
+          avoid_when: "Do not use until you have read the target file and confirmed the exact block.",
+          output_kind: "structured",
+          parallel_safe: false,
+          mutates_state: true,
+          risk: "medium",
+        },
+        {
+          name: "shell_run",
+          summary: "Run a one-shot shell command with timeout and sanitized output.",
+          when_to_use: "Use for verification, build/test commands, or targeted repo inspection not covered by workspace tools.",
+          avoid_when: "Do not use before cheaper file reads/searches. Avoid destructive commands unless explicitly requested.",
+          output_kind: "command_output",
+          parallel_safe: false,
+          mutates_state: true,
+          risk: "high",
+        },
+      ],
+      text: "Coding agent tool guide:\n- Start with read-only inspection. Read or search narrowly before editing.",
+    };
 
     return {
       async request({ method, params }) {
@@ -1263,9 +1334,11 @@
               approved: Boolean(params.approved),
             };
           }
-          case "tools.list":
-            return JSON.parse(JSON.stringify(toolCatalog));
-          case "tools.invoke_many":
+        case "tools.list":
+          return JSON.parse(JSON.stringify(toolCatalog));
+        case "tools.guide":
+          return JSON.parse(JSON.stringify(toolGuide));
+        case "tools.invoke_many":
             return {
               parallel: Boolean(params.parallel),
               results: (params.calls || []).map((call, index) => ({
@@ -1668,6 +1741,9 @@
   const parallelInspectResults = document.querySelector("#parallel-inspect-results");
   const toolCatalogStatusLine = document.querySelector("#tool-catalog-status-line");
   const toolCatalogList = document.querySelector("#tool-catalog-list");
+  const toolGuideStatusLine = document.querySelector("#tool-guide-status-line");
+  const toolGuideWorkflowList = document.querySelector("#tool-guide-workflow-list");
+  const toolGuideList = document.querySelector("#tool-guide-list");
   const defaultProviderInput = document.querySelector("#default-provider-input");
   const chatProviderInput = document.querySelector("#chat-provider-input");
   const chatProfileInput = document.querySelector("#chat-profile-input");
@@ -2123,6 +2199,7 @@
     allowAllCmdStatusLine.textContent = state.allowAllCmdStatus;
     parallelInspectStatusLine.textContent = state.parallelInspectStatus;
     toolCatalogStatusLine.textContent = state.toolCatalogStatus;
+    toolGuideStatusLine.textContent = state.toolGuideStatus;
     allowAllCmdToggle.checked = Boolean(state.allowAllCmd);
     bridgeLine.title = state.bridgeLastError || state.bridgeNote;
     consolePanel.classList.toggle("hidden", !state.consoleOpen);
@@ -2401,6 +2478,51 @@
 
       row.append(head, description, meta, contract);
       toolCatalogList.append(row);
+    }
+
+    toolGuideWorkflowList.replaceChildren();
+    for (const step of state.toolGuide?.workflow || []) {
+      const item = document.createElement("li");
+      item.className = "tool-guide-workflow-item";
+      item.textContent = step;
+      toolGuideWorkflowList.append(item);
+    }
+
+    toolGuideList.replaceChildren();
+    for (const item of state.toolGuide?.tools || []) {
+      const row = document.createElement("article");
+      row.className = "tool-guide-row";
+
+      const head = document.createElement("div");
+      head.className = "tool-catalog-head";
+
+      const name = document.createElement("div");
+      name.className = "tool-catalog-name";
+      name.textContent = item.name || "unknown tool";
+
+      const badges = document.createElement("div");
+      badges.className = "tool-catalog-badges";
+      badges.append(
+        createToolBadge(item.output_kind || "structured"),
+        createToolBadge(item.parallel_safe ? "parallel_safe" : "sequential_only", item.parallel_safe ? "safe" : "risky"),
+        createToolBadge(item.mutates_state ? "mutates_state" : "read_only", item.mutates_state ? "risky" : "safe"),
+      );
+      head.append(name, badges);
+
+      const summary = document.createElement("div");
+      summary.className = "tool-catalog-description";
+      summary.textContent = item.summary || "No summary";
+
+      const whenToUse = document.createElement("div");
+      whenToUse.className = "tool-guide-line";
+      whenToUse.textContent = `Use when: ${item.when_to_use || "n/a"}`;
+
+      const avoidWhen = document.createElement("div");
+      avoidWhen.className = "tool-guide-line";
+      avoidWhen.textContent = `Avoid when: ${item.avoid_when || "n/a"}`;
+
+      row.append(head, summary, whenToUse, avoidWhen);
+      toolGuideList.append(row);
     }
 
     parallelInspectResults.replaceChildren();
@@ -3444,6 +3566,7 @@
     state = applyPendingApprovals(state, await client.listPendingApprovals());
     state = applyToolActivitySnapshot(state, await client.getToolActivitySnapshot());
     state = applyToolsCatalog(state, await client.listTools());
+    state = applyToolGuide(state, await client.getToolsGuide({ providerRole: "coding_agent" }));
     state = applyAllowAllCmdGrant(state, await client.getAllowAllCmd(sessionId));
     syncConfigScopeFromProvider(
       state.conversationSettings?.routes?.chat?.provider ||

@@ -206,6 +206,49 @@ export function createMockTransport() {
       },
     },
   ];
+  const toolGuide = {
+    provider_role: "coding_agent",
+    workflow: [
+      "Start with read-only inspection. Read or search narrowly before editing.",
+      "Use parallel reads only for independent inspection calls that are marked parallel-safe.",
+      "Keep edits and shell actions sequential. Re-read affected files after non-trivial changes.",
+      "Use approval before proposing or attempting risky actions outside the normal edit flow.",
+      "Verify with the smallest command or diff that proves the change.",
+    ],
+    tools: [
+      {
+        name: "workspace_read",
+        summary: "Read file content with optional line bounds.",
+        when_to_use: "Use for exact inspection after locating the target file.",
+        avoid_when: "Do not read huge files blindly; narrow by path or line range first.",
+        output_kind: "file_content",
+        parallel_safe: true,
+        mutates_state: false,
+        risk: "low",
+      },
+      {
+        name: "workspace_edit",
+        summary: "Replace an exact block in one workspace file.",
+        when_to_use: "Use for surgical edits with known search text.",
+        avoid_when: "Do not use until you have read the target file and confirmed the exact block.",
+        output_kind: "structured",
+        parallel_safe: false,
+        mutates_state: true,
+        risk: "medium",
+      },
+      {
+        name: "shell_run",
+        summary: "Run a one-shot shell command with timeout and sanitized output.",
+        when_to_use: "Use for verification, build/test commands, or targeted repo inspection not covered by workspace tools.",
+        avoid_when: "Do not use before cheaper file reads/searches. Avoid destructive commands unless explicitly requested.",
+        output_kind: "command_output",
+        parallel_safe: false,
+        mutates_state: true,
+        risk: "high",
+      },
+    ],
+    text: "Coding agent tool guide:\n- Start with read-only inspection. Read or search narrowly before editing.",
+  };
 
   return {
     async request({ method, params }) {
@@ -279,6 +322,8 @@ export function createMockTransport() {
           return JSON.parse(JSON.stringify(toolActivitySnapshot));
         case "tools.list":
           return JSON.parse(JSON.stringify(toolCatalog));
+        case "tools.guide":
+          return JSON.parse(JSON.stringify(toolGuide));
         case "tools.invoke_many":
           return {
             parallel: Boolean(params.parallel),

@@ -38,6 +38,8 @@ export function defaultDesktopViewState() {
     approvalStatus: "No pending approvals",
     toolsCatalog: [],
     toolCatalogStatus: "Tool catalog unavailable",
+    toolGuide: null,
+    toolGuideStatus: "Tool playbook unavailable",
     allowAllCmd: false,
     allowAllCmdUpdatedBy: "none",
     allowAllCmdStatus: "Session shell grant disabled",
@@ -352,6 +354,26 @@ export function applyToolCatalogStatus(state, toolCatalogStatus) {
   return {
     ...state,
     toolCatalogStatus: toolCatalogStatus || state.toolCatalogStatus,
+  };
+}
+
+export function applyToolGuide(state, toolGuide) {
+  const nextGuide = toolGuide ? JSON.parse(JSON.stringify(toolGuide)) : null;
+  const toolCount = nextGuide?.tools?.length || 0;
+  return {
+    ...state,
+    toolGuide: nextGuide,
+    toolGuideStatus:
+      toolCount > 0
+        ? `${toolCount} preferred tool${toolCount === 1 ? "" : "s"} in playbook`
+        : "Tool playbook unavailable",
+  };
+}
+
+export function applyToolGuideStatus(state, toolGuideStatus) {
+  return {
+    ...state,
+    toolGuideStatus: toolGuideStatus || state.toolGuideStatus,
   };
 }
 

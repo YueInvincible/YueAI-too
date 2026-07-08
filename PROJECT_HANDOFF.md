@@ -196,6 +196,7 @@ Chi giu 3 thu:
   - toggle `allow-all-cmd` theo session;
   - `tools.invoke_many` cho parallel inspect read-only;
   - render metadata tool `output_kind`, `parallel_safe`, `mutates_state`;
+  - render them `Tool playbook` runtime-generated cho `coding_agent` qua `tools.guide`;
   - hien ket qua batch inspect theo tung tool call thay vi chi dump vao message log.
 - Desktop shell UI da duoc doi sang chat-first shell ro hon:
   - `Ops` va `Config` la drawer mo theo nguc canh thay vi full panel song song;
