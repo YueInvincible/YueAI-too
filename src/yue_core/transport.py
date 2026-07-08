@@ -104,6 +104,10 @@ class JsonLineServer:
                     specs,
                     provider_role=str(provider_role) if provider_role is not None else None,
                 )
+            elif method == "agents.bundle":
+                payload = self.core.agent_bundle_snapshot(
+                    str(params.get("provider_role", "coding_agent"))
+                )
             elif method == "tools.invoke":
                 result = await self.core.invoke(
                     params["name"],

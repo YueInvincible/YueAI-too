@@ -256,6 +256,22 @@ export function createMockTransport() {
       "System:\nYou are responsible for implementing code changes safely and validating them with real checks.\n\nTool usage:\nInspect relevant files before editing.\n\nCoding agent tool guide:\n- Start with read-only inspection.",
     tool_count: 3,
   };
+  const agentBundle = {
+    provider_role: "coding_agent",
+    default_provider: "localhost.chat",
+    route: {
+      provider: "localhost.chat",
+      prompt_profile: "coding_agent",
+    },
+    active_provider: {
+      kind: "llama.cpp",
+      provider_name: "localhost.chat",
+      model: "Qwen3-4B-Q5_K_M.gguf",
+    },
+    prompt_preview: promptPreview,
+    tool_guide: toolGuide,
+    tools: toolCatalog,
+  };
 
   return {
     async request({ method, params }) {
@@ -331,6 +347,8 @@ export function createMockTransport() {
           return JSON.parse(JSON.stringify(toolCatalog));
         case "tools.guide":
           return JSON.parse(JSON.stringify(toolGuide));
+        case "agents.bundle":
+          return JSON.parse(JSON.stringify(agentBundle));
         case "tools.invoke_many":
           return {
             parallel: Boolean(params.parallel),

@@ -69,6 +69,8 @@ from .anthropic import (
 )
 from .approval_bridge import BridgeApprovalProvider
 from .tool_activity import ToolActivityStore
+from .tool_catalog import filter_tool_specs_for_role
+from .tool_guidance import build_tool_guide
 
 LOGGER = logging.getLogger(__name__)
 
@@ -324,6 +326,36 @@ class YueCore:
                 str(name): dict(profile)
                 for name, profile in self.conversations.prompt_profiles.items()
             },
+        }
+
+    def agent_bundle_snapshot(self, provider_role: str = "coding_agent") -> dict[str, Any]:
+        route = dict(self.conversations.routes.get(provider_role) or {})
+        prompt_preview = self.conversations.prompt_preview(provider_role)
+        tool_specs = filter_tool_specs_for_role(self.registry.list_specs(), provider_role)
+        return {
+            "provider_role": provider_role,
+            "default_provider": self.settings.conversation.default_provider,
+            "route": {
+                "provider": str(route.get("provider") or self.settings.conversation.default_provider),
+                "prompt_profile": self.conversations.resolve_prompt_profile(provider_role),
+            },
+            "active_provider": self._resolve_active_provider_details(),
+            "prompt_preview": prompt_preview,
+            "tool_guide": build_tool_guide(tool_specs, provider_role=provider_role),
+            "tools": [
+                {
+                    "name": spec.name,
+                    "description": spec.description,
+                    "model_description": spec.model_description(),
+                    "input_schema": spec.input_schema,
+                    "capability": spec.capability.value,
+                    "risk": spec.risk.value,
+                    "plugin_id": spec.plugin_id,
+                    "output_kind": spec.output_kind.value,
+                    "metadata": spec.runtime_metadata(),
+                }
+                for spec in tool_specs
+            ],
         }
 
     def openai_compatible_settings_snapshot(self) -> dict[str, Any]:

@@ -42,6 +42,8 @@ export function defaultDesktopViewState() {
     toolGuideStatus: "Tool playbook unavailable",
     promptPreview: null,
     promptPreviewStatus: "Runtime prompt unavailable",
+    agentBundle: null,
+    agentBundleStatus: "Agent bundle unavailable",
     allowAllCmd: false,
     allowAllCmdUpdatedBy: "none",
     allowAllCmdStatus: "Session shell grant disabled",
@@ -395,6 +397,25 @@ export function applyPromptPreviewStatus(state, promptPreviewStatus) {
   return {
     ...state,
     promptPreviewStatus: promptPreviewStatus || state.promptPreviewStatus,
+  };
+}
+
+export function applyAgentBundle(state, agentBundle) {
+  const nextBundle = agentBundle ? JSON.parse(JSON.stringify(agentBundle)) : null;
+  const toolCount = nextBundle?.tools?.length || 0;
+  return {
+    ...state,
+    agentBundle: nextBundle,
+    agentBundleStatus: nextBundle
+      ? `${nextBundle.provider_role || "agent"} bundle ready | ${toolCount} tools`
+      : "Agent bundle unavailable",
+  };
+}
+
+export function applyAgentBundleStatus(state, agentBundleStatus) {
+  return {
+    ...state,
+    agentBundleStatus: agentBundleStatus || state.agentBundleStatus,
   };
 }
 

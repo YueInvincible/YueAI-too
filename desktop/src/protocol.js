@@ -67,6 +67,12 @@ export class CoreProtocolClient {
     });
   }
 
+  getAgentBundle(options = {}) {
+    return this.#request("agents.bundle", {
+      provider_role: options.providerRole || "coding_agent",
+    });
+  }
+
   invokeMany(calls, options = {}) {
     return this.#request("tools.invoke_many", {
       calls,

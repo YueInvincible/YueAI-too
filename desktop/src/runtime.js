@@ -77,6 +77,12 @@
       });
     }
 
+    getAgentBundle(options = {}) {
+      return this.#request("agents.bundle", {
+        provider_role: options.providerRole || "coding_agent",
+      });
+    }
+
     invokeMany(calls, options = {}) {
       return this.#request("tools.invoke_many", {
         calls,
@@ -243,6 +249,8 @@
       toolGuideStatus: "Tool playbook unavailable",
       promptPreview: null,
       promptPreviewStatus: "Runtime prompt unavailable",
+      agentBundle: null,
+      agentBundleStatus: "Agent bundle unavailable",
       allowAllCmd: false,
       allowAllCmdUpdatedBy: "none",
       allowAllCmdStatus: "Session shell grant disabled",
@@ -592,6 +600,25 @@
     return {
       ...state,
       promptPreviewStatus: promptPreviewStatus || state.promptPreviewStatus,
+    };
+  }
+
+  function applyAgentBundle(state, agentBundle) {
+    const nextBundle = agentBundle ? JSON.parse(JSON.stringify(agentBundle)) : null;
+    const toolCount = nextBundle?.tools?.length || 0;
+    return {
+      ...state,
+      agentBundle: nextBundle,
+      agentBundleStatus: nextBundle
+        ? `${nextBundle.provider_role || "agent"} bundle ready | ${toolCount} tools`
+        : "Agent bundle unavailable",
+    };
+  }
+
+  function applyAgentBundleStatus(state, agentBundleStatus) {
+    return {
+      ...state,
+      agentBundleStatus: agentBundleStatus || state.agentBundleStatus,
     };
   }
 
@@ -1304,6 +1331,22 @@
       ],
       text: "Coding agent tool guide:\n- Start with read-only inspection. Read or search narrowly before editing.",
     };
+    const agentBundle = {
+      provider_role: "coding_agent",
+      default_provider: "localhost.chat",
+      route: {
+        provider: "localhost.chat",
+        prompt_profile: "coding_agent",
+      },
+      active_provider: {
+        kind: "llama.cpp",
+        provider_name: "localhost.chat",
+        model: "Qwen3-4B-Q5_K_M.gguf",
+      },
+      prompt_preview: promptPreview,
+      tool_guide: toolGuide,
+      tools: toolCatalog,
+    };
 
     return {
       async request({ method, params }) {
@@ -1365,6 +1408,8 @@
           return JSON.parse(JSON.stringify(toolCatalog));
         case "tools.guide":
           return JSON.parse(JSON.stringify(toolGuide));
+        case "agents.bundle":
+          return JSON.parse(JSON.stringify(agentBundle));
         case "tools.invoke_many":
             return {
               parallel: Boolean(params.parallel),
@@ -1775,6 +1820,9 @@
   const promptPreviewCopyButton = document.querySelector("#prompt-preview-copy-button");
   const promptPreviewStatusLine = document.querySelector("#prompt-preview-status-line");
   const promptPreviewContent = document.querySelector("#prompt-preview-content");
+  const agentBundleCopyButton = document.querySelector("#agent-bundle-copy-button");
+  const agentBundleStatusLine = document.querySelector("#agent-bundle-status-line");
+  const agentBundleContent = document.querySelector("#agent-bundle-content");
   const defaultProviderInput = document.querySelector("#default-provider-input");
   const chatProviderInput = document.querySelector("#chat-provider-input");
   const chatProfileInput = document.querySelector("#chat-profile-input");
@@ -2232,6 +2280,7 @@
     toolCatalogStatusLine.textContent = state.toolCatalogStatus;
     toolGuideStatusLine.textContent = state.toolGuideStatus;
     promptPreviewStatusLine.textContent = state.promptPreviewStatus;
+    agentBundleStatusLine.textContent = state.agentBundleStatus;
     allowAllCmdToggle.checked = Boolean(state.allowAllCmd);
     bridgeLine.title = state.bridgeLastError || state.bridgeNote;
     consolePanel.classList.toggle("hidden", !state.consoleOpen);
@@ -2559,6 +2608,9 @@
 
     promptPreviewContent.textContent =
       state.promptPreview?.system_instruction || "Runtime prompt unavailable.";
+    agentBundleContent.textContent = state.agentBundle
+      ? JSON.stringify(state.agentBundle, null, 2)
+      : "Agent bundle unavailable.";
 
     parallelInspectResults.replaceChildren();
     for (const item of state.parallelInspectResults) {
@@ -3620,6 +3672,7 @@
     state = applyToolsCatalog(state, await client.listTools());
     state = applyToolGuide(state, await client.getToolsGuide({ providerRole: "coding_agent" }));
     state = applyPromptPreview(state, await client.getConversationPromptPreview({ providerRole: "coding_agent" }));
+    state = applyAgentBundle(state, await client.getAgentBundle({ providerRole: "coding_agent" }));
     state = applyAllowAllCmdGrant(state, await client.getAllowAllCmd(sessionId));
     syncConfigScopeFromProvider(
       state.conversationSettings?.routes?.chat?.provider ||
@@ -4477,6 +4530,25 @@
       return;
     }
     await copyToolingPayload(text, "Copied runtime prompt", "Copy runtime prompt failed");
+  });
+
+  agentBundleCopyButton?.addEventListener("click", async () => {
+    const text = state.agentBundle ? JSON.stringify(state.agentBundle, null, 2) : "";
+    if (!text) {
+      state = applyAgentBundleStatus(state, "Agent bundle unavailable");
+      render();
+      return;
+    }
+    try {
+      await writeClipboardText(text);
+      state = applyAgentBundleStatus(state, "Copied agent bundle");
+    } catch (error) {
+      state = applyAgentBundleStatus(
+        state,
+        `Copy agent bundle failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    render();
   });
 
   configScopeSelect?.addEventListener("change", () => {

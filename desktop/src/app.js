@@ -2,6 +2,8 @@ import { CoreProtocolClient, createMessage } from "./protocol.js";
 import {
   applyApprovalResponse,
   applyApprovalStatus,
+  applyAgentBundle,
+  applyAgentBundleStatus,
   applyAllowAllCmdGrant,
   applyAllowAllCmdStatus,
   appendMessage,
@@ -124,6 +126,9 @@ const toolGuideCopyButton = document.querySelector("#tool-guide-copy-button");
 const promptPreviewCopyButton = document.querySelector("#prompt-preview-copy-button");
 const promptPreviewStatusLine = document.querySelector("#prompt-preview-status-line");
 const promptPreviewContent = document.querySelector("#prompt-preview-content");
+const agentBundleCopyButton = document.querySelector("#agent-bundle-copy-button");
+const agentBundleStatusLine = document.querySelector("#agent-bundle-status-line");
+const agentBundleContent = document.querySelector("#agent-bundle-content");
 const defaultProviderInput = document.querySelector("#default-provider-input");
 const chatProviderInput = document.querySelector("#chat-provider-input");
 const chatProfileInput = document.querySelector("#chat-profile-input");
@@ -262,6 +267,7 @@ function render() {
   toolCatalogStatusLine.textContent = state.toolCatalogStatus;
   toolGuideStatusLine.textContent = state.toolGuideStatus;
   promptPreviewStatusLine.textContent = state.promptPreviewStatus;
+  agentBundleStatusLine.textContent = state.agentBundleStatus;
   allowAllCmdToggle.checked = Boolean(state.allowAllCmd);
   bridgeLine.title = state.bridgeLastError || state.bridgeNote;
   consolePanel.classList.toggle("hidden", !state.consoleOpen);
@@ -491,6 +497,9 @@ function render() {
   }
   promptPreviewContent.textContent =
     state.promptPreview?.system_instruction || "Runtime prompt unavailable.";
+  agentBundleContent.textContent = state.agentBundle
+    ? JSON.stringify(state.agentBundle, null, 2)
+    : "Agent bundle unavailable.";
 
   parallelInspectResults.replaceChildren();
   for (const item of state.parallelInspectResults) {
@@ -1355,6 +1364,7 @@ async function bootstrap() {
   state = applyToolsCatalog(state, await client.listTools());
   state = applyToolGuide(state, await client.getToolsGuide({ providerRole: "coding_agent" }));
   state = applyPromptPreview(state, await client.getConversationPromptPreview({ providerRole: "coding_agent" }));
+  state = applyAgentBundle(state, await client.getAgentBundle({ providerRole: "coding_agent" }));
   state = applyAllowAllCmdGrant(state, await client.getAllowAllCmd(sessionId));
   if (bridgeCommands) {
     pendingRuntimeInfo = await bridgeCommands.runtimeInfo();
@@ -1975,6 +1985,25 @@ promptPreviewCopyButton?.addEventListener("click", async () => {
     return;
   }
   await copyToolingPayload(text, "Copied runtime prompt", "Copy runtime prompt failed");
+});
+
+agentBundleCopyButton?.addEventListener("click", async () => {
+  const text = state.agentBundle ? JSON.stringify(state.agentBundle, null, 2) : "";
+  if (!text) {
+    state = applyAgentBundleStatus(state, "Agent bundle unavailable");
+    render();
+    return;
+  }
+  try {
+    await writeClipboardText(text);
+    state = applyAgentBundleStatus(state, "Copied agent bundle");
+  } catch (error) {
+    state = applyAgentBundleStatus(
+      state,
+      `Copy agent bundle failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  render();
 });
 
 window.addEventListener("beforeunload", async () => {

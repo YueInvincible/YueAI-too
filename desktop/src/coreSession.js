@@ -92,6 +92,10 @@ export class CoreSessionClient {
     return this.client.getToolsGuide(options);
   }
 
+  async getAgentBundle(options = {}) {
+    return this.client.getAgentBundle(options);
+  }
+
   async invokeMany(calls, options = {}) {
     return this.client.invokeMany(calls, {
       ...options,

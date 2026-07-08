@@ -160,6 +160,7 @@ Desktop shell UI
   - tool/permission methods moi da co:
     - `tools.list`
     - `tools.guide`
+    - `agents.bundle`
     - `tools.invoke_many`
     - `permissions.allow_all_cmd.get`
     - `permissions.allow_all_cmd.set`
@@ -170,6 +171,7 @@ Desktop shell UI
     - `tool.*`
   - `tools.list` gio tra ca `model_description` ngoai `description` de agent client nhan du hint ve scrub/parallel/risk contract.
   - `tools.guide` tra them 1 playbook co cau truc cho agent client, tap trung vao workflow inspect/edit/verify va rule "khi nao dung / khi nao tranh" cho tool surface uu tien.
+  - `agents.bundle` gom route/provider role, active provider snapshot, runtime prompt preview, tool playbook, va filtered tool catalog thanh 1 payload copy/export duoc cho agent client khac.
   - `tools.list` cung nhan `provider_role` tuy chon de lay dung tool catalog da duoc policy filter cho `coding_agent`; role nay hien uu tien alias underscore, con ten dotted legacy van duoc giu cho transport/UI flow cu.
 
 - `src/yue_core/openai_compat.py`
@@ -450,6 +452,7 @@ Frontend methods trong `protocol.js`:
 - frontend module hien chua can wrapper rieng cho `tools.guide`, nhung JSONL method nay da co san neu desktop/agent client muon render tool playbook runtime-generated.
 - desktop shell gio da goi `tools.guide` luc bootstrap cho role `coding_agent` va render playbook nay trong `Ops`.
 - desktop shell gio cung goi `conversations.prompt_preview` cho role `coding_agent`, de user copy duoc system instruction runtime that thay vi doan tu editor.
+- desktop shell gio cung goi `agents.bundle` cho role `coding_agent`, de copy/export duoc 1 snapshot agent surface day du hon.
 - `invokeMany`
 - `getAllowAllCmd`
 - `setAllowAllCmd`

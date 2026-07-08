@@ -5,6 +5,8 @@ import { CoreProtocolClient, createMessage } from "../src/protocol.js";
 import {
   applyApprovalResponse,
   applyApprovalStatus,
+  applyAgentBundle,
+  applyAgentBundleStatus,
   applyAllowAllCmdGrant,
   applyAllowAllCmdStatus,
   appendMessage,
@@ -84,6 +86,7 @@ test("protocol client dispatches desktop methods through transport", async () =>
   await client.listTools({ providerRole: "coding_agent" });
   await client.getToolsGuide({ providerRole: "coding_agent" });
   await client.getConversationPromptPreview({ providerRole: "coding_agent" });
+  await client.getAgentBundle({ providerRole: "coding_agent" });
   await client.invokeMany(
     [{ name: "workspace.read", arguments: { path: "README.md" } }],
     { parallel: true, actor: "desktop-ui", sessionId: "desktop-ui" },
@@ -108,6 +111,7 @@ test("protocol client dispatches desktop methods through transport", async () =>
       "tools.list",
       "tools.guide",
       "conversations.prompt_preview",
+      "agents.bundle",
       "tools.invoke_many",
       "permissions.allow_all_cmd.get",
       "permissions.allow_all_cmd.set",
@@ -123,8 +127,9 @@ test("protocol client dispatches desktop methods through transport", async () =>
   assert.equal(calls[6].params.provider_role, "coding_agent");
   assert.equal(calls[7].params.provider_role, "coding_agent");
   assert.equal(calls[8].params.provider_role, "coding_agent");
-  assert.equal(calls[9].params.parallel, true);
-  assert.equal(calls[11].params.allowed, true);
+  assert.equal(calls[9].params.provider_role, "coding_agent");
+  assert.equal(calls[10].params.parallel, true);
+  assert.equal(calls[12].params.allowed, true);
 });
 
 test("mock transport supports the current desktop shell flow", async () => {
@@ -256,6 +261,10 @@ test("mock transport supports the current desktop shell flow", async () => {
   const promptPreview = await client.getConversationPromptPreview({ providerRole: "coding_agent" });
   assert.equal(promptPreview.provider_role, "coding_agent");
   assert.match(promptPreview.system_instruction, /Coding agent tool guide/);
+  const agentBundle = await client.getAgentBundle({ providerRole: "coding_agent" });
+  assert.equal(agentBundle.provider_role, "coding_agent");
+  assert.equal(agentBundle.route.prompt_profile, "coding_agent");
+  assert.equal(Array.isArray(agentBundle.tools), true);
   const invoked = await client.invokeMany(
     [{ name: "workspace.read", arguments: { path: "src/demo.js", start_line: 1, end_line: 5 } }],
     { parallel: true, actor: "desktop-ui", sessionId: "desktop-preview" },
@@ -424,6 +433,12 @@ test("desktop view-state helpers preserve immutable updates", () => {
     tool_count: 2,
   });
   const withPromptPreviewStatus = applyPromptPreviewStatus(withPromptPreview, "Prompt preview synced");
+  const withAgentBundle = applyAgentBundle(withPromptPreviewStatus, {
+    provider_role: "coding_agent",
+    route: { provider: "localhost.chat", prompt_profile: "coding_agent" },
+    tools: [{ name: "workspace_read" }, { name: "shell_run" }],
+  });
+  const withAgentBundleStatus = applyAgentBundleStatus(withAgentBundle, "Agent bundle synced");
   const withGrant = applyAllowAllCmdGrant(withToolStatus, {
     allow_all_cmd: true,
     updated_by: "desktop-ui",
@@ -497,6 +512,9 @@ test("desktop view-state helpers preserve immutable updates", () => {
   assert.equal(withPromptPreview.promptPreview.provider_role, "coding_agent");
   assert.equal(withPromptPreview.promptPreviewStatus, "Runtime prompt ready for coding_agent");
   assert.equal(withPromptPreviewStatus.promptPreviewStatus, "Prompt preview synced");
+  assert.equal(withAgentBundle.agentBundle.tools.length, 2);
+  assert.equal(withAgentBundle.agentBundleStatus, "coding_agent bundle ready | 2 tools");
+  assert.equal(withAgentBundleStatus.agentBundleStatus, "Agent bundle synced");
   assert.equal(withGrant.allowAllCmd, true);
   assert.equal(withGrant.allowAllCmdUpdatedBy, "desktop-ui");
   assert.equal(withGrantStatus.allowAllCmdStatus, "Grant syncing");
@@ -968,6 +986,35 @@ test("core session client preserves session id across desktop requests", async (
                       system_instruction: "System:\nCode carefully\n\nCoding agent tool guide",
                       tool_count: 1,
                     }
+                : request.method === "agents.bundle"
+                  ? {
+                      provider_role: request.params.provider_role || "coding_agent",
+                      route: {
+                        provider: "localhost.chat",
+                        prompt_profile: "coding_agent",
+                      },
+                      active_provider: {
+                        kind: "llama.cpp",
+                        provider_name: "localhost.chat",
+                      },
+                      prompt_preview: {
+                        provider_role: "coding_agent",
+                        prompt_profile: "coding_agent",
+                        system_instruction: "System:\nCode carefully\n\nCoding agent tool guide",
+                        tool_count: 1,
+                      },
+                      tool_guide: {
+                        provider_role: "coding_agent",
+                        workflow: ["Inspect first"],
+                        tools: [{ name: "workspace_read" }],
+                      },
+                      tools: [
+                        {
+                          name: "workspace_read",
+                          output_kind: "file_content",
+                        },
+                      ],
+                    }
                 : request.method === "tools.invoke_many"
                   ? {
                       parallel: request.params.parallel,
@@ -1105,6 +1152,7 @@ test("core session client preserves session id across desktop requests", async (
   await session.listTools();
   await session.getToolsGuide({ providerRole: "coding_agent" });
   await session.getConversationPromptPreview({ providerRole: "coding_agent" });
+  await session.getAgentBundle({ providerRole: "coding_agent" });
   await session.invokeMany(
     [{ name: "workspace.read", arguments: { path: "README.md" } }],
     { parallel: true },
@@ -1129,11 +1177,13 @@ test("core session client preserves session id across desktop requests", async (
   assert.equal(lines[13].params.provider_role, "coding_agent");
   assert.equal(lines[14].method, "conversations.prompt_preview");
   assert.equal(lines[14].params.provider_role, "coding_agent");
-  assert.equal(lines[15].method, "tools.invoke_many");
-  assert.equal(lines[15].params.session_id, "desktop-ui");
-  assert.equal(lines[16].method, "permissions.allow_all_cmd.get");
-  assert.equal(lines[17].method, "permissions.allow_all_cmd.set");
-  assert.equal(lines[17].params.allowed, true);
+  assert.equal(lines[15].method, "agents.bundle");
+  assert.equal(lines[15].params.provider_role, "coding_agent");
+  assert.equal(lines[16].method, "tools.invoke_many");
+  assert.equal(lines[16].params.session_id, "desktop-ui");
+  assert.equal(lines[17].method, "permissions.allow_all_cmd.get");
+  assert.equal(lines[18].method, "permissions.allow_all_cmd.set");
+  assert.equal(lines[18].params.allowed, true);
 });
 
 test("core session client forwards events to subscribers", async () => {

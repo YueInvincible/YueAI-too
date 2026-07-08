@@ -194,6 +194,34 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Coding agent tool guide:", response["result"]["system_instruction"])
         self.assertGreater(response["result"]["tool_count"], 0)
 
+    async def test_agent_bundle_returns_exportable_coding_agent_snapshot(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            core = YueCore(settings)
+            server = JsonLineServer(core)
+            async with core:
+                response = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "agent-bundle",
+                            "method": "agents.bundle",
+                            "params": {"provider_role": "coding_agent"},
+                        }
+                    )
+                )
+        self.assertTrue(response["ok"])
+        bundle = response["result"]
+        self.assertEqual(bundle["provider_role"], "coding_agent")
+        self.assertEqual(bundle["route"]["prompt_profile"], "coding_agent")
+        self.assertIn("system_instruction", bundle["prompt_preview"])
+        self.assertIn("Coding agent tool guide:", bundle["prompt_preview"]["system_instruction"])
+        self.assertIn("tools", bundle)
+        self.assertIn("tool_guide", bundle)
+        tool_names = {item["name"] for item in bundle["tools"]}
+        self.assertIn("workspace_read", tool_names)
+        self.assertIn("shell_run", tool_names)
+
     async def test_conversation_round_trip(self):
         with workspace_temp_dir() as temp:
             settings = Settings()
