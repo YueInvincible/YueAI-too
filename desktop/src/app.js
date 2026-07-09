@@ -8,6 +8,8 @@ import {
   applyAgentStarterPackStatus,
   applyAllowAllCmdGrant,
   applyAllowAllCmdStatus,
+  applyAuditPreview,
+  applyAuditPreviewStatus,
   applyCapabilityGrants,
   applyCapabilityGrantsStatus,
   appendMessage,
@@ -42,6 +44,7 @@ import {
   selectAnthropicConfig,
   selectProviderConfig,
   setConversationId,
+  summarizeDesktopText,
   summarizeRunGroup,
   toggleInspectorRunGroupCollapsed,
   toggleRunGroupCollapsed,
@@ -118,6 +121,9 @@ const allowAllCmdToggle = document.querySelector("#allow-all-cmd-toggle");
 const permissionCenterStatusLine = document.querySelector("#permission-center-status-line");
 const permissionCenterRefreshButton = document.querySelector("#permission-center-refresh-button");
 const permissionGrantsList = document.querySelector("#permission-grants-list");
+const permissionAuditStatusLine = document.querySelector("#permission-audit-status-line");
+const permissionAuditRefreshButton = document.querySelector("#permission-audit-refresh-button");
+const permissionAuditList = document.querySelector("#permission-audit-list");
 const parallelInspectStatusLine = document.querySelector("#parallel-inspect-status-line");
 const parallelInspectForm = document.querySelector("#parallel-inspect-form");
 const parallelInspectPathsInput = document.querySelector("#parallel-inspect-paths-input");
@@ -248,6 +254,16 @@ const ANTHROPIC_PRESETS = {
   },
 };
 
+const RISKY_AUDIT_CATEGORIES = [
+  "permission.decision",
+  "permission.grant.updated",
+  "permission.capability_grant.updated",
+  "permission.capability_grant.revoked",
+  "approval.pending",
+  "approval.responded",
+  "tool.result",
+];
+
 function delay(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
@@ -275,6 +291,7 @@ function render() {
   runInspectorStatusLine.textContent = describeRunInspectorStatus(state);
   allowAllCmdStatusLine.textContent = state.allowAllCmdStatus;
   permissionCenterStatusLine.textContent = state.capabilityGrantsStatus;
+  permissionAuditStatusLine.textContent = state.auditPreviewStatus;
   parallelInspectStatusLine.textContent = state.parallelInspectStatus;
   toolCatalogStatusLine.textContent = state.toolCatalogStatus;
   toolGuideStatusLine.textContent = state.toolGuideStatus;
@@ -426,6 +443,18 @@ function render() {
   }
   for (const grant of capabilityGrants) {
     permissionGrantsList.append(renderPermissionGrantRow(grant));
+  }
+
+  permissionAuditList.replaceChildren();
+  const auditPreview = Array.isArray(state.auditPreview) ? state.auditPreview : [];
+  if (auditPreview.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "console-note permission-empty";
+    empty.textContent = "No recent risky actions are available yet.";
+    permissionAuditList.append(empty);
+  }
+  for (const record of auditPreview) {
+    permissionAuditList.append(renderPermissionAuditRow(record));
   }
 
   toolCatalogList.replaceChildren();
@@ -1233,6 +1262,101 @@ function renderPermissionGrantRow(grant = {}) {
   return row;
 }
 
+function renderPermissionAuditRow(record = {}) {
+  const row = document.createElement("article");
+  row.className = "permission-audit-row";
+
+  const head = document.createElement("div");
+  head.className = "permission-grant-head";
+
+  const title = document.createElement("div");
+  title.className = "permission-grant-title";
+  title.textContent = record.category || "audit";
+
+  const badges = document.createElement("div");
+  badges.className = "tool-catalog-badges";
+  badges.append(createToolBadge(auditRecordToneLabel(record), auditRecordTone(record)));
+  head.append(title, badges);
+
+  const meta = document.createElement("div");
+  meta.className = "permission-grant-meta";
+  meta.textContent = [
+    formatAuditTimestamp(record.timestamp),
+    describeAuditRecord(record),
+  ]
+    .filter(Boolean)
+    .join(" | ");
+
+  row.append(head, meta);
+  return row;
+}
+
+function auditRecordTone(record = {}) {
+  const category = record.category || "";
+  const data = record.data || {};
+  if (category === "tool.result" && data.status && data.status !== "succeeded") {
+    return "risky";
+  }
+  if (category === "permission.decision" && data.outcome && data.outcome !== "allow") {
+    return "risky";
+  }
+  if (category.includes("revoked")) {
+    return "neutral";
+  }
+  return "safe";
+}
+
+function auditRecordToneLabel(record = {}) {
+  const data = record.data || {};
+  return data.denial_category || data.status || data.outcome || "record";
+}
+
+function describeAuditRecord(record = {}) {
+  const data = record.data || {};
+  if (record.category === "permission.decision") {
+    const scope = data.resource_scope
+      ? `${data.resource_scope.kind || "resource"}:${data.resource_scope.value || "*"}`
+      : null;
+    return [
+      data.tool || "tool",
+      data.outcome || "unknown",
+      data.denial_category || null,
+      scope,
+      data.reason || null,
+    ].filter(Boolean).join(" / ");
+  }
+  if (record.category === "tool.result") {
+    return [
+      data.tool || "tool",
+      data.status || "unknown",
+      data.error || null,
+    ].filter(Boolean).join(" / ");
+  }
+  if (record.category?.startsWith("permission.capability_grant")) {
+    const grants = Array.isArray(data.capability_grants) ? data.capability_grants.length : 0;
+    return `${data.session_id || "session"} / ${grants} scoped grant${grants === 1 ? "" : "s"}`;
+  }
+  if (record.category?.startsWith("approval.")) {
+    return [
+      data.tool_name || data.approval_id || "approval",
+      data.approved === undefined ? null : data.approved ? "approved" : "denied",
+      data.reason || null,
+    ].filter(Boolean).join(" / ");
+  }
+  return summarizeDesktopText(JSON.stringify(data), 140);
+}
+
+function formatAuditTimestamp(value) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
 function createToolBadge(text, tone = "neutral") {
   const badge = document.createElement("span");
   badge.className = `tool-badge ${tone}`;
@@ -1445,6 +1569,10 @@ async function bootstrap() {
   state = applyAgentStarterPack(state, await client.getAgentStarterPack({ providerRole: "coding_agent" }));
   state = applyAllowAllCmdGrant(state, await client.getAllowAllCmd(sessionId));
   state = applyCapabilityGrants(state, await client.getCapabilityGrants(sessionId));
+  state = applyAuditPreview(state, await client.getRecentAudit({
+    limit: 8,
+    categories: RISKY_AUDIT_CATEGORIES,
+  }));
   if (bridgeCommands) {
     pendingRuntimeInfo = await bridgeCommands.runtimeInfo();
     state = applyBridgeRuntime(state, pendingRuntimeInfo);
@@ -1525,6 +1653,7 @@ async function updateAllowAllCmd(allowed) {
   try {
     const grant = await client.setAllowAllCmd(sessionId, allowed, "desktop-ui");
     state = applyAllowAllCmdGrant(state, grant);
+    await refreshAuditPreview();
   } catch (error) {
     allowAllCmdToggle.checked = !allowed;
     state = applyAllowAllCmdStatus(
@@ -1550,6 +1679,24 @@ async function refreshCapabilityGrants() {
   render();
 }
 
+async function refreshAuditPreview() {
+  state = applyAuditPreviewStatus(state, "Refreshing audit preview...");
+  render();
+  try {
+    const records = await client.getRecentAudit({
+      limit: 8,
+      categories: RISKY_AUDIT_CATEGORIES,
+    });
+    state = applyAuditPreview(state, records);
+  } catch (error) {
+    state = applyAuditPreviewStatus(
+      state,
+      `Audit refresh failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  render();
+}
+
 async function revokeCapabilityGrant(grant = {}) {
   state = applyCapabilityGrantsStatus(
     state,
@@ -1564,6 +1711,7 @@ async function revokeCapabilityGrant(grant = {}) {
       actor: "desktop-ui",
     });
     state = applyCapabilityGrants(state, updated);
+    await refreshAuditPreview();
   } catch (error) {
     state = applyCapabilityGrantsStatus(
       state,
@@ -2081,6 +2229,10 @@ allowAllCmdToggle.addEventListener("change", async () => {
 
 permissionCenterRefreshButton?.addEventListener("click", async () => {
   await refreshCapabilityGrants();
+});
+
+permissionAuditRefreshButton?.addEventListener("click", async () => {
+  await refreshAuditPreview();
 });
 
 parallelInspectForm.addEventListener("submit", async (event) => {

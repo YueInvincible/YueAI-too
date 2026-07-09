@@ -55,6 +55,13 @@ export class CoreProtocolClient {
     return this.#request("tool.activity.snapshot");
   }
 
+  getRecentAudit(options = {}) {
+    return this.#request("audit.recent", {
+      limit: options.limit || 20,
+      categories: options.categories,
+    });
+  }
+
   listTools(options = {}) {
     return this.#request("tools.list", {
       provider_role: options.providerRole,

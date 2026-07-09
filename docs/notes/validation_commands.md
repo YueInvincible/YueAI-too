@@ -17,7 +17,7 @@ python -m pytest
 
 Expected:
 
-- 82 tests collected.
+- 143 tests pass.
 - neu bo qua `PYTHONPATH`, `unittest` se khong import duoc `yue_core`.
 
 ## Desktop JS
@@ -54,6 +54,17 @@ python -m pytest tests/test_transport.py tests/test_conversation.py tests/test_t
 Expected:
 
 - 48 tests pass.
+
+Targeted transport command da duoc dung gan day cho audit/permission desktop surface:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m unittest tests.test_transport -v
+```
+
+Expected:
+
+- 31 tests pass.
 
 CLI export proof:
 

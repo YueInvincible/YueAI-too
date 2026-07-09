@@ -146,6 +146,28 @@ export function createMockTransport() {
     updated_by: "none",
     capability_grants: [],
   };
+  let auditRecords = [
+    {
+      timestamp: now(),
+      category: "approval.pending",
+      data: {
+        approval_id: "mock-approval-1",
+        tool_name: "shell.run",
+        reason: "Command requires explicit approval",
+      },
+    },
+    {
+      timestamp: now(),
+      category: "permission.decision",
+      data: {
+        request_id: "mock-request-1",
+        tool: "shell.run",
+        outcome: "deny",
+        denial_category: "denied_by_missing_scope",
+        resource_scope: { kind: "shell.cwd", value: "*" },
+      },
+    },
+  ];
   let toolActivitySnapshot = {
     items: [
       {
@@ -572,6 +594,17 @@ export function createMockTransport() {
               error: null,
             })),
           };
+        case "audit.recent": {
+          const categories = Array.isArray(params.categories)
+            ? new Set(params.categories)
+            : null;
+          const limit = Math.max(1, Math.min(Number(params.limit || 20), 100));
+          return auditRecords
+            .filter((item) => !categories || categories.has(item.category))
+            .slice(-limit)
+            .reverse()
+            .map((item) => JSON.parse(JSON.stringify(item)));
+        }
         case "permissions.allow_all_cmd.get":
           if (params.session_id !== allowAllCmdGrant.session_id) {
             return {
@@ -589,6 +622,11 @@ export function createMockTransport() {
             allow_all_cmd: Boolean(params.allowed),
             updated_by: params.actor || "desktop-ui",
           };
+          auditRecords.push({
+            timestamp: now(),
+            category: "permission.grant.updated",
+            data: JSON.parse(JSON.stringify(allowAllCmdGrant)),
+          });
           return JSON.parse(JSON.stringify(allowAllCmdGrant));
         case "permissions.capability_grants.get":
           if (params.session_id !== allowAllCmdGrant.session_id) {
@@ -622,6 +660,11 @@ export function createMockTransport() {
             updated_by: params.actor || "desktop-ui",
             capability_grants: capabilityGrants,
           };
+          auditRecords.push({
+            timestamp: now(),
+            category: "permission.capability_grant.updated",
+            data: JSON.parse(JSON.stringify(allowAllCmdGrant)),
+          });
           return JSON.parse(JSON.stringify(allowAllCmdGrant));
         }
         case "permissions.capability_grants.revoke": {
@@ -642,6 +685,11 @@ export function createMockTransport() {
               return true;
             }),
           };
+          auditRecords.push({
+            timestamp: now(),
+            category: "permission.capability_grant.revoked",
+            data: JSON.parse(JSON.stringify(allowAllCmdGrant)),
+          });
           return JSON.parse(JSON.stringify(allowAllCmdGrant));
         }
         case "providers.list":

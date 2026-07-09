@@ -74,6 +74,7 @@ Tach cac yeu cau permissions/safety ra khoi handoff tong de agent sau khong bo s
   - panel toggle co note ro grant chi anh huong model shell tools trong session hien tai;
   - permission center trong Ops drawer hien scoped capability grants cua session hien tai;
   - permission center co refresh va revoke tung grant qua `permissions.capability_grants.get/revoke`;
+  - permission center co recent risky actions/audit preview tu `audit.recent`;
   - tool contract panel show `parallel_safe`, `mutates_state`, `output_kind`;
   - shell tools hien them note rang `allow-all-cmd` chi mo trong `assist`/`admin`, `observe` van bi chan.
 - Luong approval va shell session da co them event/audit trail ro hon:
@@ -88,12 +89,16 @@ Tach cac yeu cau permissions/safety ra khoi handoff tong de agent sau khong bo s
   - `tool.request`
   - `permission.decision`
   - `tool.result`
+- Audit log da co read surface:
+  - `AuditLog.recent(...)`;
+  - JSONL method `audit.recent`;
+  - desktop protocol/mock/runtime wrappers.
 - Boundary workspace da duoc enforce cho file tools.
 - Tool co side effect ra host/process/network da co `dry_run` path de test va plan an toan hon trong moi truong bi han che.
 
 ## Viec agent sau nen lam
 
-1. Mo rong permission center voi recent risky actions va audit preview.
+1. Mo rong permission center voi denied metadata display sau hon tren tung tool/approval item.
 2. Mo rong resource taxonomy va inference cho browser/app/screen/memory khi cac tool do bat dau duoc thiet ke.
 3. Audit tiep cac action co side effect trong desktop/core de xem con duong nao chua di qua permission engine.
 4. Tach ro phan nao la approval UI/runtime, phan nao la enforcement core.
@@ -108,6 +113,16 @@ Re-check ngay 2026-07-09 cho permission center UI:
 - `node --test desktop/tests/protocol.test.js`
 
 Ket qua: desktop JS syntax pass, protocol test pass 17/17.
+
+Re-check ngay 2026-07-09 cho audit preview:
+
+- `PYTHONPATH=src python -m unittest tests.test_transport -v`
+- `node --check desktop/src/app.js`
+- `node --check desktop/src/runtime.js`
+- `node --check desktop/src/state.js`
+- `node --test desktop/tests/protocol.test.js`
+
+Ket qua: transport tests pass 31/31, desktop JS syntax pass, protocol tests pass 17/17.
 
 ## Phu thuoc
 

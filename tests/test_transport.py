@@ -610,6 +610,70 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(activity["result"]["items"][0]["status"], "denied_by_missing_scope")
 
+    async def test_audit_recent_filters_permission_and_tool_records(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            settings.permissions.profile = "assist"
+            core = YueCore(settings)
+            server = JsonLineServer(core)
+            async with core:
+                await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "grant",
+                            "method": "permissions.capability_grants.set",
+                            "params": {
+                                "session_id": "conversation-1",
+                                "capability": "shell.execute",
+                                "resource": "*",
+                                "allowed": True,
+                                "lifetime": "session",
+                                "actor": "ui",
+                            },
+                        }
+                    )
+                )
+                await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "invoke",
+                            "method": "tools.invoke",
+                            "params": {
+                                "name": "shell.run",
+                                "arguments": {
+                                    "command": "echo hi",
+                                    "dry_run": True,
+                                },
+                                "actor": "model",
+                                "session_id": "conversation-1",
+                            },
+                        }
+                    )
+                )
+                recent = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "audit",
+                            "method": "audit.recent",
+                            "params": {
+                                "limit": 5,
+                                "categories": [
+                                    "permission.capability_grant.updated",
+                                    "permission.decision",
+                                    "tool.result",
+                                ],
+                            },
+                        }
+                    )
+                )
+        self.assertTrue(recent["ok"])
+        categories = [item["category"] for item in recent["result"]]
+        self.assertIn("permission.capability_grant.updated", categories)
+        self.assertIn("permission.decision", categories)
+        self.assertIn("tool.result", categories)
+        self.assertEqual(recent["result"][0]["category"], "tool.result")
+
     async def test_capability_grant_rejects_model_actor(self):
         with workspace_temp_dir() as temp:
             settings = Settings()
@@ -1205,6 +1269,45 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("tool.started", event_topics)
         self.assertIn("tool.finished", event_topics)
         self.assertTrue(any(message.get("id") == "invoke" for message in messages))
+
+    async def test_serve_forwards_permission_events(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            settings.permissions.profile = "assist"
+            stdin = io.StringIO(
+                json.dumps(
+                    {
+                        "id": "grant",
+                        "method": "permissions.capability_grants.set",
+                        "params": {
+                            "session_id": "desktop-ui",
+                            "capability": "shell.execute",
+                            "resource": "*",
+                            "allowed": True,
+                            "actor": "ui",
+                        },
+                    }
+                )
+                + "\n"
+            )
+            stdout = io.StringIO()
+            core = YueCore(settings)
+            server = JsonLineServer(core, stdin=stdin, stdout=stdout)
+            await server.serve()
+
+        messages = [
+            json.loads(line)
+            for line in stdout.getvalue().splitlines()
+            if line.strip()
+        ]
+        event_topics = [
+            message["event"]["topic"]
+            for message in messages
+            if "event" in message
+        ]
+        self.assertIn("permission.capability_grant.updated", event_topics)
+        self.assertTrue(any(message.get("id") == "grant" for message in messages))
 
 
 if __name__ == "__main__":

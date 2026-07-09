@@ -51,6 +51,8 @@ export function defaultDesktopViewState() {
     allowAllCmdStatus: "Session shell grant disabled",
     capabilityGrants: [],
     capabilityGrantsStatus: "No scoped grants loaded",
+    auditPreview: [],
+    auditPreviewStatus: "No audit preview loaded",
     parallelInspectStatus: "Parallel inspect idle",
     parallelInspectResults: [],
     toolActivity: [],
@@ -485,6 +487,27 @@ export function applyCapabilityGrantsStatus(state, capabilityGrantsStatus) {
   return {
     ...state,
     capabilityGrantsStatus: capabilityGrantsStatus || state.capabilityGrantsStatus,
+  };
+}
+
+export function applyAuditPreview(state, records = []) {
+  const items = Array.isArray(records)
+    ? JSON.parse(JSON.stringify(records))
+    : [];
+  return {
+    ...state,
+    auditPreview: items,
+    auditPreviewStatus:
+      items.length > 0
+        ? `${items.length} audit record${items.length === 1 ? "" : "s"} loaded`
+        : "No recent risky actions",
+  };
+}
+
+export function applyAuditPreviewStatus(state, auditPreviewStatus) {
+  return {
+    ...state,
+    auditPreviewStatus: auditPreviewStatus || state.auditPreviewStatus,
   };
 }
 

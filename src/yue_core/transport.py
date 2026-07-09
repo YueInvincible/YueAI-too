@@ -41,6 +41,7 @@ class JsonLineServer:
                 self.core.events.subscribe("approval.*", forward_event),
                 self.core.events.subscribe("tool.*", forward_event),
                 self.core.events.subscribe("agent.*", forward_event),
+                self.core.events.subscribe("permission.*", forward_event),
             ]
             try:
                 while True:
@@ -225,6 +226,20 @@ class JsonLineServer:
                 if tool_activity is None or not hasattr(tool_activity, "snapshot"):
                     raise RuntimeError("tool activity store is not available")
                 payload = await tool_activity.snapshot()
+            elif method == "audit.recent":
+                audit = self.core.services.get("core.audit")
+                if audit is None or not hasattr(audit, "recent"):
+                    raise RuntimeError("audit log is not available")
+                categories_param = params.get("categories")
+                categories = None
+                if categories_param is not None:
+                    if not isinstance(categories_param, list):
+                        raise ValueError("categories must be an array")
+                    categories = {str(item) for item in categories_param}
+                payload = await audit.recent(
+                    limit=int(params.get("limit", 20)),
+                    categories=categories,
+                )
             elif method == "permissions.allow_all_cmd.get":
                 grants = self.core.services.get("core.permission_grants")
                 if grants is None or not hasattr(grants, "get"):

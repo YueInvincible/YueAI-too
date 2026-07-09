@@ -84,6 +84,10 @@ export class CoreSessionClient {
     return this.client.getToolActivitySnapshot();
   }
 
+  async getRecentAudit(options = {}) {
+    return this.client.getRecentAudit(options);
+  }
+
   async listTools() {
     return this.client.listTools();
   }

@@ -171,14 +171,16 @@ Desktop shell UI
     - `agents.runs.list`
     - `agents.runs.checklist.update`
     - `agents.runs.verification.update`
-    - `tools.invoke_many`
-    - `permissions.allow_all_cmd.get`
+  - `tools.invoke_many`
+  - `audit.recent`
+  - `permissions.allow_all_cmd.get`
     - `permissions.allow_all_cmd.set`
   - event forwarding hien forward:
     - `conversation.*`
     - `desktop.*`
     - `approval.*`
     - `tool.*`
+    - `permission.*`
   - `tools.list` gio tra ca `model_description` ngoai `description` de agent client nhan du hint ve scrub/parallel/risk contract.
   - `tools.guide` tra them 1 playbook co cau truc cho agent client, tap trung vao workflow inspect/edit/verify va rule "khi nao dung / khi nao tranh" cho tool surface uu tien.
   - `tools.guide` gio con kem them:
@@ -381,6 +383,10 @@ Gioi han quan trong:
     - `approved_pending_run`
     - `denied_by_user`
     - `denied_by_profile`
+  - Permission center trong Ops co:
+    - scoped grant list/revoke;
+    - recent risky actions/audit preview tu `audit.recent`;
+    - refresh rieng cho grant list va audit preview.
 - chua co editor day du cho:
   - `llama.cpp` single-provider path
 
@@ -493,6 +499,7 @@ Frontend methods trong `protocol.js`:
 - `listPendingApprovals`
 - `respondApproval`
 - `getToolActivitySnapshot`
+- `getRecentAudit`
 - `listTools`
 - frontend module hien chua can wrapper rieng cho `tools.guide`, nhung JSONL method nay da co san neu desktop/agent client muon render tool playbook runtime-generated.
 - desktop shell gio da goi `tools.guide` luc bootstrap cho role `coding_agent` va render playbook nay trong `Ops`.
@@ -525,6 +532,7 @@ Core JSONL methods cung da expose tool surface:
 - `tools.invoke_many`
 - `tools.cancel`
 - `tool.activity.snapshot`
+- `audit.recent`
 
 Moi method:
 

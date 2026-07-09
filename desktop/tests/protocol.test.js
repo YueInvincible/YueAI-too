@@ -11,6 +11,8 @@ import {
   applyAgentStarterPackStatus,
   applyAllowAllCmdGrant,
   applyAllowAllCmdStatus,
+  applyAuditPreview,
+  applyAuditPreviewStatus,
   applyCapabilityGrants,
   applyCapabilityGrantsStatus,
   appendMessage,
@@ -86,6 +88,10 @@ test("protocol client dispatches desktop methods through transport", async () =>
   await client.listPendingApprovals();
   await client.respondApproval("approval-1", true);
   await client.getToolActivitySnapshot();
+  await client.getRecentAudit({
+    limit: 8,
+    categories: ["permission.decision", "tool.result"],
+  });
   await client.listTools();
   await client.listTools({ providerRole: "coding_agent" });
   await client.getToolsGuide({ providerRole: "coding_agent" });
@@ -139,6 +145,7 @@ test("protocol client dispatches desktop methods through transport", async () =>
       "approval.pending.list",
       "approval.respond",
       "tool.activity.snapshot",
+      "audit.recent",
       "tools.list",
       "tools.list",
       "tools.guide",
@@ -166,27 +173,29 @@ test("protocol client dispatches desktop methods through transport", async () =>
   );
   assert.equal(calls[1].params.command, "console.toggle");
   assert.equal(calls[3].params.approval_id, "approval-1");
-  assert.equal(calls[6].params.provider_role, "coding_agent");
+  assert.equal(calls[5].params.limit, 8);
+  assert.deepEqual(calls[5].params.categories, ["permission.decision", "tool.result"]);
   assert.equal(calls[7].params.provider_role, "coding_agent");
   assert.equal(calls[8].params.provider_role, "coding_agent");
   assert.equal(calls[9].params.provider_role, "coding_agent");
   assert.equal(calls[10].params.provider_role, "coding_agent");
   assert.equal(calls[11].params.provider_role, "coding_agent");
-  assert.equal(calls[11].params.format, "system-prompt");
-  assert.equal(calls[12].params.user_request, "Refactor core");
-  assert.equal(calls[12].params.run_id, "agent-run-1");
-  assert.deepEqual(calls[12].params.plan, ["inspect"]);
+  assert.equal(calls[12].params.provider_role, "coding_agent");
+  assert.equal(calls[12].params.format, "system-prompt");
+  assert.equal(calls[13].params.user_request, "Refactor core");
   assert.equal(calls[13].params.run_id, "agent-run-1");
-  assert.equal(calls[14].params.limit, 5);
-  assert.equal(calls[15].params.checklist[0].status, "completed");
-  assert.equal(calls[16].params.status, "passed");
-  assert.equal(calls[17].params.parallel, true);
-  assert.equal(calls[19].params.allowed, true);
-  assert.equal(calls[21].params.capability, "shell.execute");
-  assert.equal(calls[21].params.resource, "*");
-  assert.equal(calls[21].params.lifetime, "run");
-  assert.equal(calls[21].params.scope_id, "agent-run-1");
+  assert.deepEqual(calls[13].params.plan, ["inspect"]);
+  assert.equal(calls[14].params.run_id, "agent-run-1");
+  assert.equal(calls[15].params.limit, 5);
+  assert.equal(calls[16].params.checklist[0].status, "completed");
+  assert.equal(calls[17].params.status, "passed");
+  assert.equal(calls[18].params.parallel, true);
+  assert.equal(calls[20].params.allowed, true);
   assert.equal(calls[22].params.capability, "shell.execute");
+  assert.equal(calls[22].params.resource, "*");
+  assert.equal(calls[22].params.lifetime, "run");
+  assert.equal(calls[22].params.scope_id, "agent-run-1");
+  assert.equal(calls[23].params.capability, "shell.execute");
 });
 
 test("mock transport supports the current desktop shell flow", async () => {
@@ -379,6 +388,15 @@ test("mock transport supports the current desktop shell flow", async () => {
     resource: "C:/workspace",
   });
   assert.equal(revokedGrant.capability_grants.length, 0);
+  const auditPreview = await client.getRecentAudit({
+    categories: [
+      "permission.capability_grant.updated",
+      "permission.capability_grant.revoked",
+      "permission.decision",
+    ],
+  });
+  assert.equal(auditPreview[0].category, "permission.capability_grant.revoked");
+  assert.equal(auditPreview.some((item) => item.category === "permission.decision"), true);
 });
 
 test("mock active provider updates persist the selected runtime config", async () => {
@@ -579,8 +597,23 @@ test("desktop view-state helpers preserve immutable updates", () => {
     withCapabilityGrants,
     "Grant center synced",
   );
+  const withAuditPreview = applyAuditPreview(withCapabilityGrantsStatus, [
+    {
+      timestamp: "2026-07-09T00:00:00Z",
+      category: "permission.decision",
+      data: {
+        tool: "shell.run",
+        outcome: "deny",
+        denial_category: "denied_by_missing_scope",
+      },
+    },
+  ]);
+  const withAuditPreviewStatus = applyAuditPreviewStatus(
+    withAuditPreview,
+    "Audit preview synced",
+  );
   const withParallelInspect = applyParallelInspectStatus(
-    withCapabilityGrantsStatus,
+    withAuditPreviewStatus,
     "Parallel inspect completed",
   );
   const withParallelResults = applyParallelInspectResults(withParallelInspect, [
@@ -659,6 +692,9 @@ test("desktop view-state helpers preserve immutable updates", () => {
   assert.equal(withCapabilityGrants.capabilityGrants[0].capability, "filesystem.write");
   assert.equal(withCapabilityGrants.capabilityGrantsStatus, "1 scoped grant active");
   assert.equal(withCapabilityGrantsStatus.capabilityGrantsStatus, "Grant center synced");
+  assert.equal(withAuditPreview.auditPreview[0].category, "permission.decision");
+  assert.equal(withAuditPreview.auditPreviewStatus, "1 audit record loaded");
+  assert.equal(withAuditPreviewStatus.auditPreviewStatus, "Audit preview synced");
   assert.equal(withParallelInspect.parallelInspectStatus, "Parallel inspect completed");
   assert.equal(withParallelResults.parallelInspectResults.length, 1);
   assert.equal(withParallelResults.parallelInspectResults[0].path, "PROJECT_HANDOFF.md");
@@ -1114,6 +1150,14 @@ test("core session client preserves session id across desktop requests", async (
                     ],
                     status: "Approval requested for workspace.read",
                   }
+              : request.method === "audit.recent"
+                ? [
+                    {
+                      timestamp: "2026-07-09T00:00:00Z",
+                      category: "permission.decision",
+                      data: { tool: "shell.run", outcome: "deny" },
+                    },
+                  ]
               : request.method === "tools.list"
                 ? [
                     {
@@ -1335,6 +1379,10 @@ test("core session client preserves session id across desktop requests", async (
   await session.listPendingApprovals();
   await session.respondApproval("approval-1", false);
   await session.getToolActivitySnapshot();
+  await session.getRecentAudit({
+    limit: 8,
+    categories: ["permission.decision"],
+  });
   await session.providersHealth();
   await session.getConversationSettings();
   await session.updateConversationSettings({
@@ -1421,46 +1469,49 @@ test("core session client preserves session id across desktop requests", async (
   assert.equal(lines[2].method, "approval.pending.list");
   assert.equal(lines[3].method, "approval.respond");
   assert.equal(lines[4].method, "tool.activity.snapshot");
-  assert.equal(lines[5].method, "providers.health");
-  assert.equal(lines[6].method, "settings.conversation.get");
-  assert.equal(lines[7].method, "settings.conversation.update");
-  assert.equal(lines[8].method, "settings.providers.openai_compat.get");
-  assert.equal(lines[9].method, "settings.providers.openai_compat.update");
-  assert.equal(lines[10].method, "settings.providers.anthropic_messages.get");
-  assert.equal(lines[11].method, "settings.providers.anthropic_messages.update");
-  assert.equal(lines[12].method, "tools.list");
-  assert.equal(lines[13].method, "tools.guide");
-  assert.equal(lines[13].params.provider_role, "coding_agent");
-  assert.equal(lines[14].method, "conversations.prompt_preview");
+  assert.equal(lines[5].method, "audit.recent");
+  assert.equal(lines[5].params.limit, 8);
+  assert.deepEqual(lines[5].params.categories, ["permission.decision"]);
+  assert.equal(lines[6].method, "providers.health");
+  assert.equal(lines[7].method, "settings.conversation.get");
+  assert.equal(lines[8].method, "settings.conversation.update");
+  assert.equal(lines[9].method, "settings.providers.openai_compat.get");
+  assert.equal(lines[10].method, "settings.providers.openai_compat.update");
+  assert.equal(lines[11].method, "settings.providers.anthropic_messages.get");
+  assert.equal(lines[12].method, "settings.providers.anthropic_messages.update");
+  assert.equal(lines[13].method, "tools.list");
+  assert.equal(lines[14].method, "tools.guide");
   assert.equal(lines[14].params.provider_role, "coding_agent");
-  assert.equal(lines[15].method, "agents.bundle");
+  assert.equal(lines[15].method, "conversations.prompt_preview");
   assert.equal(lines[15].params.provider_role, "coding_agent");
-  assert.equal(lines[16].method, "agents.starter_pack");
+  assert.equal(lines[16].method, "agents.bundle");
   assert.equal(lines[16].params.provider_role, "coding_agent");
   assert.equal(lines[17].method, "agents.starter_pack");
   assert.equal(lines[17].params.provider_role, "coding_agent");
-  assert.equal(lines[17].params.format, "system-prompt");
-  assert.equal(lines[18].method, "agents.runs.start");
-  assert.equal(lines[18].params.run_id, "session-agent-run");
-  assert.equal(lines[19].method, "agents.runs.get");
-  assert.equal(lines[20].method, "agents.runs.list");
-  assert.equal(lines[21].method, "agents.runs.checklist.update");
-  assert.equal(lines[21].params.checklist[0].status, "completed");
-  assert.equal(lines[22].method, "agents.runs.verification.update");
-  assert.equal(lines[22].params.status, "passed");
-  assert.equal(lines[23].method, "tools.invoke_many");
-  assert.equal(lines[23].params.session_id, "desktop-ui");
-  assert.equal(lines[24].method, "permissions.allow_all_cmd.get");
-  assert.equal(lines[25].method, "permissions.allow_all_cmd.set");
-  assert.equal(lines[25].params.allowed, true);
-  assert.equal(lines[26].method, "permissions.capability_grants.get");
-  assert.equal(lines[27].method, "permissions.capability_grants.set");
-  assert.equal(lines[27].params.capability, "shell.execute");
-  assert.equal(lines[27].params.session_id, "desktop-ui");
-  assert.equal(lines[27].params.lifetime, "run");
-  assert.equal(lines[27].params.scope_id, "session-agent-run");
-  assert.equal(lines[28].method, "permissions.capability_grants.revoke");
+  assert.equal(lines[18].method, "agents.starter_pack");
+  assert.equal(lines[18].params.provider_role, "coding_agent");
+  assert.equal(lines[18].params.format, "system-prompt");
+  assert.equal(lines[19].method, "agents.runs.start");
+  assert.equal(lines[19].params.run_id, "session-agent-run");
+  assert.equal(lines[20].method, "agents.runs.get");
+  assert.equal(lines[21].method, "agents.runs.list");
+  assert.equal(lines[22].method, "agents.runs.checklist.update");
+  assert.equal(lines[22].params.checklist[0].status, "completed");
+  assert.equal(lines[23].method, "agents.runs.verification.update");
+  assert.equal(lines[23].params.status, "passed");
+  assert.equal(lines[24].method, "tools.invoke_many");
+  assert.equal(lines[24].params.session_id, "desktop-ui");
+  assert.equal(lines[25].method, "permissions.allow_all_cmd.get");
+  assert.equal(lines[26].method, "permissions.allow_all_cmd.set");
+  assert.equal(lines[26].params.allowed, true);
+  assert.equal(lines[27].method, "permissions.capability_grants.get");
+  assert.equal(lines[28].method, "permissions.capability_grants.set");
   assert.equal(lines[28].params.capability, "shell.execute");
+  assert.equal(lines[28].params.session_id, "desktop-ui");
+  assert.equal(lines[28].params.lifetime, "run");
+  assert.equal(lines[28].params.scope_id, "session-agent-run");
+  assert.equal(lines[29].method, "permissions.capability_grants.revoke");
+  assert.equal(lines[29].params.capability, "shell.execute");
 });
 
 test("core session client forwards events to subscribers", async () => {
