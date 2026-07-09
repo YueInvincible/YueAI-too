@@ -859,6 +859,15 @@ test("bridge runtime and event helpers apply native state transitions", () => {
       tool_call_id: "call-2",
       status: "denied",
       error: "Capability shell.execute is outside profile observe",
+      metadata: {
+        permission: {
+          outcome: "deny",
+          reason: "Capability shell.execute is outside profile observe",
+          rule_id: "profile-boundary",
+          denial_category: "denied_by_policy",
+          resource_scope: { kind: "shell.cwd", value: "*" },
+        },
+      },
     },
   });
   const withUserDeniedTool = applyCoreEvent(withProfileDeniedFinished, {
@@ -912,7 +921,10 @@ test("bridge runtime and event helpers apply native state transitions", () => {
   assert.equal(withToolFinished.toolActivity.find((item) => item.tool_call_id === "call-1").status, "succeeded");
   assert.equal(withToolFinished.messages.at(-1).role, "tool");
   assert.equal(withToolFinished.messages.at(-1).request_id, "request-1");
-  assert.equal(withProfileDeniedFinished.toolActivity.find((item) => item.tool_call_id === "call-2").status, "denied_by_profile");
+  const deniedTool = withProfileDeniedFinished.toolActivity.find((item) => item.tool_call_id === "call-2");
+  assert.equal(deniedTool.status, "denied_by_policy");
+  assert.equal(deniedTool.permission.denial_category, "denied_by_policy");
+  assert.equal(deniedTool.permission.resource_scope.kind, "shell.cwd");
   assert.equal(withUserDeniedResponse.toolActivity.find((item) => item.tool_call_id === "call-3").status, "denied_by_user");
 });
 

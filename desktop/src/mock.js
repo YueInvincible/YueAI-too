@@ -183,6 +183,13 @@ export function createMockTransport() {
         output: null,
         error: "Command requires explicit approval",
         approval_id: "mock-approval-1",
+        permission: {
+          outcome: "deny",
+          reason: "Missing scoped grant for shell cwd",
+          rule_id: "session-capability-scope",
+          denial_category: "denied_by_missing_scope",
+          resource_scope: { kind: "shell.cwd", value: "*" },
+        },
       },
     ],
     status: "Approval requested for shell.run",

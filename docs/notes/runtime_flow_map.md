@@ -387,6 +387,9 @@ Gioi han quan trong:
     - scoped grant list/revoke;
     - recent risky actions/audit preview tu `audit.recent`;
     - refresh rieng cho grant list va audit preview.
+  - Run inspector va Permission center audit preview hien permission denial
+    metadata theo contract core:
+    `denial_category`, `resource_scope`, `rule_id`, `outcome`, `reason`.
 - chua co editor day du cho:
   - `llama.cpp` single-provider path
 

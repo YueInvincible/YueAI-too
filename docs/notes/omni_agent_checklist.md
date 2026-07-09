@@ -236,7 +236,7 @@ Reference points checked:
 - [x] Extend permission center:
   - recent risky actions;
   - audit preview.
-- [ ] Add stronger denied metadata display in permission center and run inspector.
+- [x] Add stronger denied metadata display in permission center and run inspector.
 - [ ] Add plugin center:
   - installed plugins;
   - install from URL/repo/name;
@@ -388,10 +388,9 @@ Do not start with new tools or 3D.
 
 Start with the framework pieces that unlock everything else:
 
-1. Add stronger denied metadata display in permission center and run inspector.
-2. Design plugin install/manifest/trust lifecycle.
-3. Expand resource taxonomy/inference as browser/app/screen/memory tools are designed.
-4. Add persona package schema.
-5. Add memory schema and privacy policy.
-6. Only then implement browser/screen/input tools as plugins or first-party
+1. Design plugin install/manifest/trust lifecycle.
+2. Expand resource taxonomy/inference as browser/app/screen/memory tools are designed.
+3. Add persona package schema.
+4. Add memory schema and privacy policy.
+5. Only then implement browser/screen/input tools as plugins or first-party
    tool packages.

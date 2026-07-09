@@ -665,6 +665,7 @@ function buildRunInspectorItems(state) {
       risk_level: approval?.risk_level || null,
       actor: approval?.actor || null,
       session_id: approval?.session_id || null,
+      permission: normalizePermissionMetadata(toolItem),
     });
   }
   for (const approval of state.pendingApprovals) {
@@ -689,6 +690,7 @@ function buildRunInspectorItems(state) {
       risk_level: approval.risk_level || null,
       actor: approval.actor || null,
       session_id: approval.session_id || null,
+      permission: null,
     });
   }
   return items;
@@ -733,7 +735,17 @@ function renderRunInspectorGroupHeader(group, collapsed = false) {
   const toolCount = group.items.length;
   const pendingCount = group.items.filter((item) => item.approval_pending).length;
   const issueCount = group.items.filter((item) =>
-    ["failed", "denied", "denied_by_user", "denied_by_profile", "timed_out", "cancelled"].includes(item.status),
+    [
+      "failed",
+      "denied",
+      "denied_by_user",
+      "denied_by_profile",
+      "denied_by_missing_scope",
+      "denied_by_approval_unavailable",
+      "denied_by_policy",
+      "timed_out",
+      "cancelled",
+    ].includes(item.status),
   ).length;
 
   const badges = document.createElement("div");
@@ -798,7 +810,11 @@ function renderRunInspectorItem(item) {
     humanizeToolStatus(item.status || "unknown"),
     toolActivityTone(item.status),
   );
+  const permission = normalizePermissionMetadata(item);
   head.append(name, badge);
+  if (permission?.denial_category) {
+    head.append(createToolBadge(humanizeDenialCategory(permission.denial_category), "risky"));
+  }
 
   const meta = document.createElement("div");
   meta.className = "tool-activity-meta";
@@ -824,6 +840,8 @@ function renderRunInspectorItem(item) {
   preview.textContent =
     item.error ||
     (item.output ? JSON.stringify(item.output, null, 2) : JSON.stringify(item.arguments || {}, null, 2));
+
+  const permissionDetails = renderPermissionMetadataDetails(permission);
 
   const actions = document.createElement("div");
   actions.className = "inspector-actions";
@@ -858,7 +876,11 @@ function renderRunInspectorItem(item) {
     focusInspectorSelection(selection, linkedToolResult?.id || linkedAssistantTurn?.id);
   });
 
-  row.append(head, meta, reason, preview, actions);
+  row.append(head, meta, reason);
+  if (permissionDetails) {
+    row.append(permissionDetails);
+  }
+  row.append(preview, actions);
   return row;
 }
 
@@ -1276,6 +1298,10 @@ function renderPermissionAuditRow(record = {}) {
   const badges = document.createElement("div");
   badges.className = "tool-catalog-badges";
   badges.append(createToolBadge(auditRecordToneLabel(record), auditRecordTone(record)));
+  const permission = auditPermissionMetadata(record);
+  if (permission?.resource_scope) {
+    badges.append(createToolBadge(formatResourceScope(permission.resource_scope), "neutral"));
+  }
   head.append(title, badges);
 
   const meta = document.createElement("div");
@@ -1287,7 +1313,12 @@ function renderPermissionAuditRow(record = {}) {
     .filter(Boolean)
     .join(" | ");
 
+  const permissionDetails = renderPermissionMetadataDetails(permission);
+
   row.append(head, meta);
+  if (permissionDetails) {
+    row.append(permissionDetails);
+  }
   return row;
 }
 
@@ -1308,7 +1339,8 @@ function auditRecordTone(record = {}) {
 
 function auditRecordToneLabel(record = {}) {
   const data = record.data || {};
-  return data.denial_category || data.status || data.outcome || "record";
+  const permission = auditPermissionMetadata(record);
+  return permission?.denial_category || data.denial_category || data.status || data.outcome || "record";
 }
 
 function describeAuditRecord(record = {}) {
@@ -1326,9 +1358,12 @@ function describeAuditRecord(record = {}) {
     ].filter(Boolean).join(" / ");
   }
   if (record.category === "tool.result") {
+    const permission = auditPermissionMetadata(record);
     return [
       data.tool || "tool",
       data.status || "unknown",
+      permission?.denial_category || null,
+      permission?.resource_scope ? formatResourceScope(permission.resource_scope) : null,
       data.error || null,
     ].filter(Boolean).join(" / ");
   }
@@ -1344,6 +1379,95 @@ function describeAuditRecord(record = {}) {
     ].filter(Boolean).join(" / ");
   }
   return summarizeDesktopText(JSON.stringify(data), 140);
+}
+
+function auditPermissionMetadata(record = {}) {
+  const data = record.data || {};
+  if (record.category === "permission.decision") {
+    return normalizePermissionMetadata({
+      permission: {
+        outcome: data.outcome || null,
+        reason: data.reason || null,
+        rule_id: data.rule_id || null,
+        denial_category: data.denial_category || null,
+        resource_scope: data.resource_scope || null,
+      },
+    });
+  }
+  return normalizePermissionMetadata(data);
+}
+
+function normalizePermissionMetadata(source = {}) {
+  const permission = source?.permission || source?.metadata?.permission || null;
+  if (!permission || typeof permission !== "object") {
+    return null;
+  }
+  const resourceScope =
+    permission.resource_scope && typeof permission.resource_scope === "object"
+      ? {
+          kind: permission.resource_scope.kind || "resource",
+          value: permission.resource_scope.value ?? "*",
+        }
+      : null;
+  return {
+    outcome: permission.outcome || null,
+    reason: permission.reason || null,
+    rule_id: permission.rule_id || null,
+    denial_category: permission.denial_category || null,
+    resource_scope: resourceScope,
+  };
+}
+
+function renderPermissionMetadataDetails(permission) {
+  if (!permission) {
+    return null;
+  }
+  const parts = [
+    permission.denial_category ? humanizeDenialCategory(permission.denial_category) : null,
+    permission.outcome ? `outcome ${permission.outcome}` : null,
+    permission.resource_scope ? `scope ${formatResourceScope(permission.resource_scope)}` : null,
+    permission.rule_id ? `rule ${permission.rule_id}` : null,
+  ].filter(Boolean);
+  if (parts.length === 0 && !permission.reason) {
+    return null;
+  }
+  const details = document.createElement("div");
+  details.className = "permission-denial-details";
+
+  const chips = document.createElement("div");
+  chips.className = "permission-denial-chips";
+  for (const part of parts) {
+    chips.append(createToolBadge(part, "neutral"));
+  }
+
+  const reason = document.createElement("div");
+  reason.className = "permission-denial-reason";
+  reason.textContent = permission.reason || "Permission decision metadata";
+
+  details.append(chips, reason);
+  return details;
+}
+
+function formatResourceScope(scope = {}) {
+  if (!scope || typeof scope !== "object") {
+    return "";
+  }
+  return `${scope.kind || "resource"}:${scope.value ?? "*"}`;
+}
+
+function humanizeDenialCategory(category = "") {
+  switch (category) {
+    case "denied_by_user":
+      return "denied by user";
+    case "denied_by_missing_scope":
+      return "missing scope";
+    case "denied_by_approval_unavailable":
+      return "approval unavailable";
+    case "denied_by_policy":
+      return "policy blocked";
+    default:
+      return category || "denied";
+  }
 }
 
 function formatAuditTimestamp(value) {
@@ -1383,7 +1507,14 @@ function toolActivityToneClass(status) {
   if (status === "waiting_approval" || status === "approved_pending_run") {
     return "attention";
   }
-  if (status === "denied_by_user" || status === "denied_by_profile" || status === "failed") {
+  if (
+    status === "denied_by_user" ||
+    status === "denied_by_profile" ||
+    status === "denied_by_missing_scope" ||
+    status === "denied_by_approval_unavailable" ||
+    status === "denied_by_policy" ||
+    status === "failed"
+  ) {
     return "blocked";
   }
   return "";
@@ -1399,6 +1530,12 @@ function humanizeToolStatus(status) {
       return "denied by user";
     case "denied_by_profile":
       return "blocked by profile";
+    case "denied_by_missing_scope":
+      return "missing scope";
+    case "denied_by_approval_unavailable":
+      return "approval unavailable";
+    case "denied_by_policy":
+      return "policy blocked";
     default:
       return status;
   }

@@ -341,7 +341,7 @@ Chi giu 3 thu:
 2. Desktop shell/UI:
    doc `desktop_bridge_status.md` + `runtime_flow_map.md`; fix `app.js`/`runtime.js` drift before adding large UI features
 3. Permission/tool control:
-   doc `omni_agent_checklist.md` + `permissions_and_safety.md`; scoped session capability/resource grants, revoke, first lifetimes, resource scope metadata, denial categories, first permission center list/revoke UI, and audit preview exist; next add stronger denied metadata display before adding many new tools
+   doc `omni_agent_checklist.md` + `permissions_and_safety.md`; scoped session capability/resource grants, revoke, first lifetimes, resource scope metadata, denial categories, first permission center list/revoke UI, audit preview, and stronger denied metadata display exist; next design plugin install/manifest/trust lifecycle before adding many new tools
 4. Memory/observer:
    doc `memory_and_observer_roadmap.md` + `omni_agent_checklist.md`; privacy/permission comes before always-on observer
 5. Plugin/persona ecosystem:
@@ -355,7 +355,7 @@ Chi giu 3 thu:
 
 - Doc `docs/notes/omni_agent_checklist.md` truoc de lay huong san pham moi, sau do doc note domain lien quan.
 - Core/tooling:
-  - khong mo rong nhieu built-in tool ngay; scoped capability/resource grant da co qua JSONL va desktop wrapper, revoke + lifetime `once/run/conversation/session` da co, denied result da co `denial_category` + `resource_scope`, permission center list/revoke UI + audit preview da co, tiep theo lam stronger denied metadata display va plugin install/trust lifecycle.
+  - khong mo rong nhieu built-in tool ngay; scoped capability/resource grant da co qua JSONL va desktop wrapper, revoke + lifetime `once/run/conversation/session` da co, denied result da co `denial_category` + `resource_scope`, permission center list/revoke UI + audit preview + denied metadata display da co, tiep theo design plugin install/manifest/trust lifecycle.
 - Desktop/core UX tiep theo:
   - noi packaged/Tauri desktop app vao local runtime hien dang chay that, giam phu thuoc mock/fallback path;
   - neu co the, de desktop tu spawn/stop `llama-server` hoac it nhat hien readiness ro rang cho `127.0.0.1:8080`;

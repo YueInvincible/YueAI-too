@@ -75,6 +75,8 @@ Tach cac yeu cau permissions/safety ra khoi handoff tong de agent sau khong bo s
   - permission center trong Ops drawer hien scoped capability grants cua session hien tai;
   - permission center co refresh va revoke tung grant qua `permissions.capability_grants.get/revoke`;
   - permission center co recent risky actions/audit preview tu `audit.recent`;
+  - permission center va Run inspector hien denial metadata ro hon:
+    `denial_category`, `resource_scope`, `rule_id`, `outcome`, va `reason`;
   - tool contract panel show `parallel_safe`, `mutates_state`, `output_kind`;
   - shell tools hien them note rang `allow-all-cmd` chi mo trong `assist`/`admin`, `observe` van bi chan.
 - Luong approval va shell session da co them event/audit trail ro hon:
@@ -98,7 +100,7 @@ Tach cac yeu cau permissions/safety ra khoi handoff tong de agent sau khong bo s
 
 ## Viec agent sau nen lam
 
-1. Mo rong permission center voi denied metadata display sau hon tren tung tool/approval item.
+1. Thiet ke plugin install/manifest/trust lifecycle truoc khi mo community tools.
 2. Mo rong resource taxonomy va inference cho browser/app/screen/memory khi cac tool do bat dau duoc thiet ke.
 3. Audit tiep cac action co side effect trong desktop/core de xem con duong nao chua di qua permission engine.
 4. Tach ro phan nao la approval UI/runtime, phan nao la enforcement core.
@@ -123,6 +125,15 @@ Re-check ngay 2026-07-09 cho audit preview:
 - `node --test desktop/tests/protocol.test.js`
 
 Ket qua: transport tests pass 31/31, desktop JS syntax pass, protocol tests pass 17/17.
+
+Re-check ngay 2026-07-09 cho denied metadata display:
+
+- `node --check desktop/src/app.js`
+- `node --check desktop/src/runtime.js`
+- `node --check desktop/src/state.js`
+- `node --test desktop/tests/protocol.test.js`
+
+Ket qua: desktop JS syntax pass, protocol tests pass 17/17.
 
 ## Phu thuoc
 

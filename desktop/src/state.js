@@ -612,7 +612,17 @@ export function summarizeRunGroup(group = {}) {
   const toolMessages = messages.filter((item) => item.role === "tool");
   const toolCount = toolMessages.length;
   const errorCount = toolMessages.filter((item) =>
-    ["failed", "denied", "denied_by_user", "denied_by_profile", "timed_out", "cancelled"].includes(item.status),
+    [
+      "failed",
+      "denied",
+      "denied_by_user",
+      "denied_by_profile",
+      "denied_by_missing_scope",
+      "denied_by_approval_unavailable",
+      "denied_by_policy",
+      "timed_out",
+      "cancelled",
+    ].includes(item.status),
   ).length;
   const activeCount = toolMessages.filter((item) =>
     ["requested", "running", "waiting_approval", "approved_pending_run"].includes(item.status),
@@ -759,6 +769,7 @@ export function applyToolActivityEvent(state, event = {}) {
           output: null,
           error: null,
           approval_id: null,
+          permission: null,
         },
         ...current,
       ].slice(0, 12),
@@ -829,6 +840,7 @@ export function applyToolActivityEvent(state, event = {}) {
                   : payload.status || item.status,
               output: payload.output ?? item.output,
               error: payload.error || item.error,
+              permission: extractPermissionMetadata(payload) || item.permission || null,
             }
           : item,
       );
@@ -870,11 +882,33 @@ export function applyToolActivityEvent(state, event = {}) {
 }
 
 function classifyDeniedToolStatus(item, payload) {
+  const permission = extractPermissionMetadata(payload) || item?.permission || {};
+  const category = permission.denial_category;
+  if (category === "denied_by_user") {
+    return "denied_by_user";
+  }
+  if (category === "denied_by_missing_scope") {
+    return "denied_by_missing_scope";
+  }
+  if (category === "denied_by_approval_unavailable") {
+    return "denied_by_approval_unavailable";
+  }
+  if (category === "denied_by_policy") {
+    return "denied_by_policy";
+  }
   const error = String(payload?.error || item?.error || "").toLowerCase();
   if (item?.approval_id || error.includes("user denied")) {
     return "denied_by_user";
   }
   return "denied_by_profile";
+}
+
+function extractPermissionMetadata(payload = {}) {
+  const permission = payload?.metadata?.permission || payload?.permission || null;
+  if (!permission || typeof permission !== "object") {
+    return null;
+  }
+  return JSON.parse(JSON.stringify(permission));
 }
 
 export function applyCoreEvent(state, event = {}) {

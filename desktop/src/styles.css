@@ -1388,6 +1388,26 @@ select.message-input {
   box-shadow: inset 0 0 0 1px rgba(175, 78, 67, 0.14);
 }
 
+.permission-denial-details {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(175, 78, 67, 0.22);
+  background: rgba(175, 78, 67, 0.08);
+  color: var(--muted-2);
+  font: 0.78rem/1.45 var(--sans);
+}
+
+.permission-denial-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.permission-denial-reason {
+  overflow-wrap: anywhere;
+}
+
 .approval-row.is-selected,
 .tool-activity-row.is-selected,
 .message-row.is-selected {
