@@ -344,6 +344,8 @@
       allowAllCmd: false,
       allowAllCmdUpdatedBy: "none",
       allowAllCmdStatus: "Session shell grant disabled",
+      capabilityGrants: [],
+      capabilityGrantsStatus: "No scoped grants loaded",
       parallelInspectStatus: "Parallel inspect idle",
       parallelInspectResults: [],
       toolActivity: [],
@@ -733,7 +735,7 @@
   function applyAllowAllCmdGrant(state, grant) {
     const allowed = Boolean(grant?.allow_all_cmd);
     const updatedBy = grant?.updated_by || "none";
-    return {
+    const nextState = {
       ...state,
       allowAllCmd: allowed,
       allowAllCmdUpdatedBy: updatedBy,
@@ -741,12 +743,39 @@
         ? `Session shell grant enabled by ${updatedBy}`
         : "Session shell grant disabled",
     };
+    if (Array.isArray(grant?.capability_grants)) {
+      return applyCapabilityGrants(nextState, grant);
+    }
+    return {
+      ...nextState,
+    };
   }
 
   function applyAllowAllCmdStatus(state, allowAllCmdStatus) {
     return {
       ...state,
       allowAllCmdStatus: allowAllCmdStatus || state.allowAllCmdStatus,
+    };
+  }
+
+  function applyCapabilityGrants(state, grant = {}) {
+    const items = Array.isArray(grant?.capability_grants)
+      ? JSON.parse(JSON.stringify(grant.capability_grants))
+      : [];
+    return {
+      ...state,
+      capabilityGrants: items,
+      capabilityGrantsStatus:
+        items.length > 0
+          ? `${items.length} scoped grant${items.length === 1 ? "" : "s"} active`
+          : "No scoped grants active",
+    };
+  }
+
+  function applyCapabilityGrantsStatus(state, capabilityGrantsStatus) {
+    return {
+      ...state,
+      capabilityGrantsStatus: capabilityGrantsStatus || state.capabilityGrantsStatus,
     };
   }
 
@@ -1042,6 +1071,13 @@
 
     if (topic === "permission.grant.updated") {
       return applyAllowAllCmdGrant(withToolActivity, payload);
+    }
+
+    if (
+      topic === "permission.capability_grant.updated" ||
+      topic === "permission.capability_grant.revoked"
+    ) {
+      return applyCapabilityGrants(withToolActivity, payload);
     }
 
     return withToolActivity;
@@ -2168,6 +2204,9 @@
   const drawerCloseButtons = document.querySelectorAll("[data-close-drawer]");
   const allowAllCmdStatusLine = document.querySelector("#allow-all-cmd-status-line");
   const allowAllCmdToggle = document.querySelector("#allow-all-cmd-toggle");
+  const permissionCenterStatusLine = document.querySelector("#permission-center-status-line");
+  const permissionCenterRefreshButton = document.querySelector("#permission-center-refresh-button");
+  const permissionGrantsList = document.querySelector("#permission-grants-list");
   const parallelInspectStatusLine = document.querySelector("#parallel-inspect-status-line");
   const parallelInspectForm = document.querySelector("#parallel-inspect-form");
   const parallelInspectPathsInput = document.querySelector("#parallel-inspect-paths-input");
@@ -2643,6 +2682,7 @@
     anthropicConfigStatusLine.textContent = state.anthropicConfigStatus;
     runInspectorStatusLine.textContent = describeRunInspectorStatus(state);
     allowAllCmdStatusLine.textContent = state.allowAllCmdStatus;
+    permissionCenterStatusLine.textContent = state.capabilityGrantsStatus;
     parallelInspectStatusLine.textContent = state.parallelInspectStatus;
     toolCatalogStatusLine.textContent = state.toolCatalogStatus;
     toolGuideStatusLine.textContent = state.toolGuideStatus;
@@ -2879,6 +2919,18 @@
     }
     for (const group of runInspectorGroups) {
       runInspectorList.append(renderRunInspectorGroup(group));
+    }
+
+    permissionGrantsList.replaceChildren();
+    const capabilityGrants = Array.isArray(state.capabilityGrants) ? state.capabilityGrants : [];
+    if (capabilityGrants.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "console-note permission-empty";
+      empty.textContent = "No scoped capability grants are active for this session.";
+      permissionGrantsList.append(empty);
+    }
+    for (const grant of capabilityGrants) {
+      permissionGrantsList.append(renderPermissionGrantRow(grant));
     }
 
     toolCatalogList.replaceChildren();
@@ -3812,6 +3864,52 @@
     return state.approvalStatus || state.toolActivityStatus;
   }
 
+  function renderPermissionGrantRow(grant = {}) {
+    const row = document.createElement("article");
+    row.className = "permission-grant-row";
+
+    const head = document.createElement("div");
+    head.className = "permission-grant-head";
+
+    const title = document.createElement("div");
+    title.className = "permission-grant-title";
+    title.textContent = grant.capability || "unknown capability";
+
+    const badges = document.createElement("div");
+    badges.className = "tool-catalog-badges";
+    badges.append(
+      createToolBadge(grant.allowed === false ? "denied" : "allowed", grant.allowed === false ? "risky" : "safe"),
+      createToolBadge(grant.lifetime || "session"),
+    );
+
+    head.append(title, badges);
+
+    const meta = document.createElement("div");
+    meta.className = "permission-grant-meta";
+    meta.textContent = [
+      grant.resource ? `resource ${grant.resource}` : "resource *",
+      grant.scope_id ? `scope ${grant.scope_id}` : null,
+      grant.uses_remaining != null ? `uses ${grant.uses_remaining}` : null,
+      grant.updated_by ? `by ${grant.updated_by}` : null,
+    ]
+      .filter(Boolean)
+      .join(" | ");
+
+    const actions = document.createElement("div");
+    actions.className = "permission-grant-actions";
+    const revokeButton = document.createElement("button");
+    revokeButton.className = "ghost-button inline-button";
+    revokeButton.type = "button";
+    revokeButton.textContent = "Revoke";
+    revokeButton.addEventListener("click", async () => {
+      await revokeCapabilityGrant(grant);
+    });
+    actions.append(revokeButton);
+
+    row.append(head, meta, actions);
+    return row;
+  }
+
   function createToolBadge(text, tone = "neutral") {
     const badge = document.createElement("span");
     badge.className = `tool-badge ${tone}`;
@@ -4045,6 +4143,7 @@
     state = applyAgentBundle(state, await client.getAgentBundle({ providerRole: "coding_agent" }));
     state = applyAgentStarterPack(state, await client.getAgentStarterPack({ providerRole: "coding_agent" }));
     state = applyAllowAllCmdGrant(state, await client.getAllowAllCmd(sessionId));
+    state = applyCapabilityGrants(state, await client.getCapabilityGrants(sessionId));
     syncConfigScopeFromProvider(
       state.conversationSettings?.routes?.chat?.provider ||
         state.conversationSettings?.default_provider ||
@@ -4138,6 +4237,44 @@
       state = applyAllowAllCmdStatus(
         state,
         `Shell grant update failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    render();
+  }
+
+  async function refreshCapabilityGrants() {
+    state = applyCapabilityGrantsStatus(state, "Refreshing scoped grants...");
+    render();
+    try {
+      const grant = await client.getCapabilityGrants(sessionId);
+      state = applyCapabilityGrants(state, grant);
+    } catch (error) {
+      state = applyCapabilityGrantsStatus(
+        state,
+        `Grant refresh failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    render();
+  }
+
+  async function revokeCapabilityGrant(grant = {}) {
+    state = applyCapabilityGrantsStatus(
+      state,
+      `Revoking ${grant.capability || "capability grant"}...`,
+    );
+    render();
+    try {
+      const updated = await client.revokeCapabilityGrant(sessionId, {
+        grantId: grant.id,
+        capability: grant.capability,
+        resource: grant.resource,
+        actor: "desktop-ui",
+      });
+      state = applyCapabilityGrants(state, updated);
+    } catch (error) {
+      state = applyCapabilityGrantsStatus(
+        state,
+        `Grant revoke failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
     render();
@@ -4876,6 +5013,10 @@
 
   allowAllCmdToggle.addEventListener("change", async () => {
     await updateAllowAllCmd(allowAllCmdToggle.checked);
+  });
+
+  permissionCenterRefreshButton?.addEventListener("click", async () => {
+    await refreshCapabilityGrants();
   });
 
   parallelInspectForm.addEventListener("submit", async (event) => {

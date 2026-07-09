@@ -229,10 +229,11 @@ Reference points checked:
   - memory/privacy;
   - avatar;
   - diagnostics.
-- [ ] Add a permission center:
+- [x] Add a first permission center:
   - pending approvals;
   - granted scopes;
   - revoke buttons;
+- [ ] Extend permission center:
   - recent risky actions;
   - audit preview.
 - [ ] Add plugin center:
@@ -386,7 +387,7 @@ Do not start with new tools or 3D.
 
 Start with the framework pieces that unlock everything else:
 
-1. Add permission center UI for grant list/revoke and denied metadata display.
+1. Add permission center audit preview/recent risky actions and stronger denied metadata display.
 2. Design plugin install/manifest/trust lifecycle.
 3. Expand resource taxonomy/inference as browser/app/screen/memory tools are designed.
 4. Add persona package schema.

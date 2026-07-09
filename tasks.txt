@@ -46,9 +46,10 @@ Known next targets
 - Treat Codex as the reference for agent loop, sandbox/approval, bounded
   context, config layering, tool contracts, and plugin discipline; Yue should
   extend this into desktop-wide assistance.
-- Do not write many built-in tools yet. Next add permission center list/revoke
-  UI with denied metadata display, then plugin install/trust lifecycle, persona
-  schema, and memory schema.
+- Do not write many built-in tools yet. Permission center list/revoke UI is now
+  wired. Next add permission center audit preview/recent risky actions and
+  stronger denied metadata display, then plugin install/trust lifecycle,
+  persona schema, and memory schema.
 - Reduce drift between `desktop/src/app.js` and `desktop/src/runtime.js`; note that `desktop/index.html` currently loads `runtime.js` directly, so `runtime.js` remains the live shell source of truth until unified.
 - Add clearer local-runtime readiness and recovery UX for the localhost provider path.
 - Keep extending local-runtime readiness and recovery UX for the localhost provider path.

@@ -151,6 +151,16 @@
                 <div class="console-note">
                   Session grant only affects model shell tools in this session. It does not bypass the `observe` profile boundary.
                 </div>
+                <div class="permission-center">
+                  <div class="permission-center-head">
+                    <div>
+                      <div class="section-label">Permission center</div>
+                      <div id="permission-center-status-line" class="section-copy">No scoped grants loaded</div>
+                    </div>
+                    <button id="permission-center-refresh-button" class="ghost-button inline-button" type="button">Refresh grants</button>
+                  </div>
+                  <div id="permission-grants-list" class="permission-grants-list"></div>
+                </div>
                 <form id="parallel-inspect-form" class="settings-form compact-form">
                   <label class="settings-field">
                     <span>Workspace paths, one per line</span>

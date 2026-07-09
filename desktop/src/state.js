@@ -49,6 +49,8 @@ export function defaultDesktopViewState() {
     allowAllCmd: false,
     allowAllCmdUpdatedBy: "none",
     allowAllCmdStatus: "Session shell grant disabled",
+    capabilityGrants: [],
+    capabilityGrantsStatus: "No scoped grants loaded",
     parallelInspectStatus: "Parallel inspect idle",
     parallelInspectResults: [],
     toolActivity: [],
@@ -442,7 +444,7 @@ export function applyAgentStarterPackStatus(state, agentStarterPackStatus) {
 export function applyAllowAllCmdGrant(state, grant) {
   const allowed = Boolean(grant?.allow_all_cmd);
   const updatedBy = grant?.updated_by || "none";
-  return {
+  const nextState = {
     ...state,
     allowAllCmd: allowed,
     allowAllCmdUpdatedBy: updatedBy,
@@ -450,12 +452,39 @@ export function applyAllowAllCmdGrant(state, grant) {
       ? `Session shell grant enabled by ${updatedBy}`
       : "Session shell grant disabled",
   };
+  if (Array.isArray(grant?.capability_grants)) {
+    return applyCapabilityGrants(nextState, grant);
+  }
+  return {
+    ...nextState,
+  };
 }
 
 export function applyAllowAllCmdStatus(state, allowAllCmdStatus) {
   return {
     ...state,
     allowAllCmdStatus: allowAllCmdStatus || state.allowAllCmdStatus,
+  };
+}
+
+export function applyCapabilityGrants(state, grant = {}) {
+  const items = Array.isArray(grant?.capability_grants)
+    ? JSON.parse(JSON.stringify(grant.capability_grants))
+    : [];
+  return {
+    ...state,
+    capabilityGrants: items,
+    capabilityGrantsStatus:
+      items.length > 0
+        ? `${items.length} scoped grant${items.length === 1 ? "" : "s"} active`
+        : "No scoped grants active",
+  };
+}
+
+export function applyCapabilityGrantsStatus(state, capabilityGrantsStatus) {
+  return {
+    ...state,
+    capabilityGrantsStatus: capabilityGrantsStatus || state.capabilityGrantsStatus,
   };
 }
 
@@ -875,6 +904,13 @@ export function applyCoreEvent(state, event = {}) {
 
   if (topic === "permission.grant.updated") {
     return applyAllowAllCmdGrant(withToolActivity, payload);
+  }
+
+  if (
+    topic === "permission.capability_grant.updated" ||
+    topic === "permission.capability_grant.revoked"
+  ) {
+    return applyCapabilityGrants(withToolActivity, payload);
   }
 
   return withToolActivity;

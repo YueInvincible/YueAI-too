@@ -11,6 +11,8 @@ import {
   applyAgentStarterPackStatus,
   applyAllowAllCmdGrant,
   applyAllowAllCmdStatus,
+  applyCapabilityGrants,
+  applyCapabilityGrantsStatus,
   appendMessage,
   applyAnthropicConfigStatus,
   applyAnthropicMessagesSettings,
@@ -551,10 +553,34 @@ test("desktop view-state helpers preserve immutable updates", () => {
   const withGrant = applyAllowAllCmdGrant(withToolStatus, {
     allow_all_cmd: true,
     updated_by: "desktop-ui",
+    capability_grants: [
+      {
+        id: "grant-1",
+        capability: "shell.execute",
+        resource: "C:/workspace",
+        allowed: true,
+        lifetime: "once",
+      },
+    ],
   });
   const withGrantStatus = applyAllowAllCmdStatus(withGrant, "Grant syncing");
+  const withCapabilityGrants = applyCapabilityGrants(withGrantStatus, {
+    capability_grants: [
+      {
+        id: "grant-2",
+        capability: "filesystem.write",
+        resource: "workspace.path:C:/workspace",
+        allowed: true,
+        lifetime: "session",
+      },
+    ],
+  });
+  const withCapabilityGrantsStatus = applyCapabilityGrantsStatus(
+    withCapabilityGrants,
+    "Grant center synced",
+  );
   const withParallelInspect = applyParallelInspectStatus(
-    withGrantStatus,
+    withCapabilityGrantsStatus,
     "Parallel inspect completed",
   );
   const withParallelResults = applyParallelInspectResults(withParallelInspect, [
@@ -628,7 +654,11 @@ test("desktop view-state helpers preserve immutable updates", () => {
   assert.equal(withAgentStarterPackStatus.agentStarterPackStatus, "Agent starter pack synced");
   assert.equal(withGrant.allowAllCmd, true);
   assert.equal(withGrant.allowAllCmdUpdatedBy, "desktop-ui");
+  assert.equal(withGrant.capabilityGrants[0].capability, "shell.execute");
   assert.equal(withGrantStatus.allowAllCmdStatus, "Grant syncing");
+  assert.equal(withCapabilityGrants.capabilityGrants[0].capability, "filesystem.write");
+  assert.equal(withCapabilityGrants.capabilityGrantsStatus, "1 scoped grant active");
+  assert.equal(withCapabilityGrantsStatus.capabilityGrantsStatus, "Grant center synced");
   assert.equal(withParallelInspect.parallelInspectStatus, "Parallel inspect completed");
   assert.equal(withParallelResults.parallelInspectResults.length, 1);
   assert.equal(withParallelResults.parallelInspectResults[0].path, "PROJECT_HANDOFF.md");
@@ -706,7 +736,22 @@ test("bridge runtime and event helpers apply native state transitions", () => {
       updated_by: "desktop-ui",
     },
   });
-  const withToolRequested = applyCoreEvent(withGrantEvent, {
+  const withCapabilityGrantEvent = applyCoreEvent(withGrantEvent, {
+    topic: "permission.capability_grant.updated",
+    payload: {
+      session_id: "desktop-ui",
+      capability_grants: [
+        {
+          id: "grant-1",
+          capability: "shell.execute",
+          resource: "*",
+          allowed: true,
+          lifetime: "session",
+        },
+      ],
+    },
+  });
+  const withToolRequested = applyCoreEvent(withCapabilityGrantEvent, {
     topic: "conversation.tool.requested",
     payload: {
       run_id: "run-1",
@@ -823,6 +868,7 @@ test("bridge runtime and event helpers apply native state transitions", () => {
   assert.equal(withPendingApproval.pendingApprovals.length, 1);
   assert.equal(resolved.pendingApprovals.length, 0);
   assert.equal(withGrantEvent.allowAllCmd, true);
+  assert.equal(withCapabilityGrantEvent.capabilityGrants[0].capability, "shell.execute");
   assert.equal(withToolRequested.toolActivity.length, 1);
   assert.equal(withToolStarted.toolActivity.find((item) => item.tool_call_id === "call-1").status, "running");
   assert.equal(withApprovalForTool.toolActivity.find((item) => item.tool_call_id === "call-1").status, "waiting_approval");

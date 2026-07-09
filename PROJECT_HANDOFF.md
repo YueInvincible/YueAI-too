@@ -172,6 +172,11 @@ Chi giu 3 thu:
   - user/ui van co the di qua luong approval neu runtime bat interactive approval.
 - Default `coding_agent` prompt profile da co tool guidance mac dinh de model biet uu tien inspect/edit/verify flow.
 - Runtime gio da co them tool guide runtime-generated cho `coding_agent`, noi truc tiep vao system instruction va expose qua JSONL method `tools.guide`, de prompt/tool catalog/client docs cung mot source-of-truth.
+- Desktop shell da co first permission center trong `Ops`:
+  - list scoped capability/resource grants theo session;
+  - refresh grant list;
+  - revoke tung grant qua `permissions.capability_grants.revoke`;
+  - hydrate lai khi core phat `permission.capability_grant.updated/revoked`.
 - `tools.guide` gio da duoc nang thanh contract giau hon cho agent client:
   - `execution_rules`
   - `decision_rules`
@@ -284,6 +289,12 @@ Chi giu 3 thu:
     - `node --check desktop/src/runtime.js`
     - `node --check desktop/src/state.js`
     - `node --test desktop/tests/protocol.test.js`
+  - re-check ngay 2026-07-09 cho permission center UI:
+    - `node --check desktop/src/app.js`
+    - `node --check desktop/src/runtime.js`
+    - `node --check desktop/src/state.js`
+    - `node --test desktop/tests/protocol.test.js`
+    - ket qua: JS syntax pass, protocol tests pass 17/17.
   - re-check ngay 2026-07-07 cho active-provider protocol/state slice:
     - `node --check desktop/src/protocol.js`
     - `node --check desktop/src/state.js`
@@ -317,7 +328,7 @@ Chi giu 3 thu:
 2. Desktop shell/UI:
    doc `desktop_bridge_status.md` + `runtime_flow_map.md`; fix `app.js`/`runtime.js` drift before adding large UI features
 3. Permission/tool control:
-   doc `omni_agent_checklist.md` + `permissions_and_safety.md`; scoped session capability/resource grants, revoke, first lifetimes, resource scope metadata, and denial categories exist; next add permission center UI before adding many new tools
+   doc `omni_agent_checklist.md` + `permissions_and_safety.md`; scoped session capability/resource grants, revoke, first lifetimes, resource scope metadata, denial categories, and first permission center list/revoke UI exist; next add audit preview/recent risky actions and stronger denied metadata display before adding many new tools
 4. Memory/observer:
    doc `memory_and_observer_roadmap.md` + `omni_agent_checklist.md`; privacy/permission comes before always-on observer
 5. Plugin/persona ecosystem:
@@ -331,7 +342,7 @@ Chi giu 3 thu:
 
 - Doc `docs/notes/omni_agent_checklist.md` truoc de lay huong san pham moi, sau do doc note domain lien quan.
 - Core/tooling:
-  - khong mo rong nhieu built-in tool ngay; scoped capability/resource grant da co qua JSONL va desktop wrapper, revoke + lifetime `once/run/conversation/session` da co, denied result da co `denial_category` + `resource_scope`, tiep theo lam permission center list/revoke UI va plugin install/trust lifecycle.
+  - khong mo rong nhieu built-in tool ngay; scoped capability/resource grant da co qua JSONL va desktop wrapper, revoke + lifetime `once/run/conversation/session` da co, denied result da co `denial_category` + `resource_scope`, permission center list/revoke UI da co, tiep theo lam audit preview/recent risky actions va plugin install/trust lifecycle.
 - Desktop/core UX tiep theo:
   - noi packaged/Tauri desktop app vao local runtime hien dang chay that, giam phu thuoc mock/fallback path;
   - neu co the, de desktop tu spawn/stop `llama-server` hoac it nhat hien readiness ro rang cho `127.0.0.1:8080`;

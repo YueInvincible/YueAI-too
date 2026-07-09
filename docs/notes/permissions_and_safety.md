@@ -72,6 +72,8 @@ Tach cac yeu cau permissions/safety ra khoi handoff tong de agent sau khong bo s
   - tool activity uu tien metadata nay thay vi doan error text.
 - Desktop shell da render ro hon contract nay:
   - panel toggle co note ro grant chi anh huong model shell tools trong session hien tai;
+  - permission center trong Ops drawer hien scoped capability grants cua session hien tai;
+  - permission center co refresh va revoke tung grant qua `permissions.capability_grants.get/revoke`;
   - tool contract panel show `parallel_safe`, `mutates_state`, `output_kind`;
   - shell tools hien them note rang `allow-all-cmd` chi mo trong `assist`/`admin`, `observe` van bi chan.
 - Luong approval va shell session da co them event/audit trail ro hon:
@@ -91,10 +93,21 @@ Tach cac yeu cau permissions/safety ra khoi handoff tong de agent sau khong bo s
 
 ## Viec agent sau nen lam
 
-1. Noi permission center UI voi grant list/revoke de user thay granted scopes va thu hoi duoc.
+1. Mo rong permission center voi recent risky actions va audit preview.
 2. Mo rong resource taxonomy va inference cho browser/app/screen/memory khi cac tool do bat dau duoc thiet ke.
 3. Audit tiep cac action co side effect trong desktop/core de xem con duong nao chua di qua permission engine.
 4. Tach ro phan nao la approval UI/runtime, phan nao la enforcement core.
+
+## Latest verification
+
+Re-check ngay 2026-07-09 cho permission center UI:
+
+- `node --check desktop/src/app.js`
+- `node --check desktop/src/runtime.js`
+- `node --check desktop/src/state.js`
+- `node --test desktop/tests/protocol.test.js`
+
+Ket qua: desktop JS syntax pass, protocol test pass 17/17.
 
 ## Phu thuoc
 

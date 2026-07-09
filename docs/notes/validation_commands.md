@@ -29,7 +29,7 @@ npm test
 
 Expected:
 
-- 15 tests pass.
+- 17 tests pass.
 
 Targeted command da duoc dung gan day cho desktop shell/protocol:
 
@@ -41,8 +41,8 @@ node --check desktop/src/runtime.js
 
 Expected:
 
-- 15 tests pass.
-- syntax check pass cho `app.js` va `runtime.js`.
+- 17 tests pass.
+- syntax check pass cho `app.js`, `runtime.js`, va `state.js`.
 
 Targeted Python subset da duoc dung gan day cho runtime/tool flow:
 
