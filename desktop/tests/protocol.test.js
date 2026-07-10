@@ -124,6 +124,7 @@ test("protocol client dispatches desktop methods through transport", async () =>
     plan: ["inspect"],
     metadata: { surface: "test" },
   });
+  await client.resumeAgentRun("agent-run-1");
   await client.getAgentRun("agent-run-1");
   await client.listAgentRuns({ limit: 5 });
   await client.updateAgentRunChecklist("agent-run-1", [
@@ -173,6 +174,7 @@ test("protocol client dispatches desktop methods through transport", async () =>
       "agents.starter_pack",
       "agents.starter_pack",
       "agents.runs.start",
+      "agents.runs.resume",
       "agents.runs.get",
       "agents.runs.list",
       "agents.runs.checklist.update",
@@ -205,16 +207,18 @@ test("protocol client dispatches desktop methods through transport", async () =>
   assert.equal(calls[13].params.run_id, "agent-run-1");
   assert.deepEqual(calls[13].params.plan, ["inspect"]);
   assert.equal(calls[14].params.run_id, "agent-run-1");
-  assert.equal(calls[15].params.limit, 5);
-  assert.equal(calls[16].params.checklist[0].status, "completed");
-  assert.equal(calls[17].params.status, "passed");
-  assert.equal(calls[18].params.parallel, true);
-  assert.equal(calls[20].params.allowed, true);
-  assert.equal(calls[22].params.capability, "shell.execute");
-  assert.equal(calls[22].params.resource, "*");
-  assert.equal(calls[22].params.lifetime, "run");
-  assert.equal(calls[22].params.scope_id, "agent-run-1");
+  assert.equal(calls[14].params.actor, "desktop-ui");
+  assert.equal(calls[15].params.run_id, "agent-run-1");
+  assert.equal(calls[16].params.limit, 5);
+  assert.equal(calls[17].params.checklist[0].status, "completed");
+  assert.equal(calls[18].params.status, "passed");
+  assert.equal(calls[19].params.parallel, true);
+  assert.equal(calls[21].params.allowed, true);
   assert.equal(calls[23].params.capability, "shell.execute");
+  assert.equal(calls[23].params.resource, "*");
+  assert.equal(calls[23].params.lifetime, "run");
+  assert.equal(calls[23].params.scope_id, "agent-run-1");
+  assert.equal(calls[24].params.capability, "shell.execute");
 });
 
 test("mock transport supports the current desktop shell flow", async () => {
@@ -1468,6 +1472,7 @@ test("core session client preserves session id across desktop requests", async (
     runId: "session-agent-run",
     plan: ["inspect"],
   });
+  await session.resumeAgentRun("session-agent-run");
   await session.getAgentRun("session-agent-run");
   await session.listAgentRuns({ limit: 5 });
   await session.updateAgentRunChecklist("session-agent-run", [
@@ -1524,25 +1529,27 @@ test("core session client preserves session id across desktop requests", async (
   assert.equal(lines[18].params.format, "system-prompt");
   assert.equal(lines[19].method, "agents.runs.start");
   assert.equal(lines[19].params.run_id, "session-agent-run");
-  assert.equal(lines[20].method, "agents.runs.get");
-  assert.equal(lines[21].method, "agents.runs.list");
-  assert.equal(lines[22].method, "agents.runs.checklist.update");
-  assert.equal(lines[22].params.checklist[0].status, "completed");
-  assert.equal(lines[23].method, "agents.runs.verification.update");
-  assert.equal(lines[23].params.status, "passed");
-  assert.equal(lines[24].method, "tools.invoke_many");
-  assert.equal(lines[24].params.session_id, "desktop-ui");
-  assert.equal(lines[25].method, "permissions.allow_all_cmd.get");
-  assert.equal(lines[26].method, "permissions.allow_all_cmd.set");
-  assert.equal(lines[26].params.allowed, true);
-  assert.equal(lines[27].method, "permissions.capability_grants.get");
-  assert.equal(lines[28].method, "permissions.capability_grants.set");
-  assert.equal(lines[28].params.capability, "shell.execute");
-  assert.equal(lines[28].params.session_id, "desktop-ui");
-  assert.equal(lines[28].params.lifetime, "run");
-  assert.equal(lines[28].params.scope_id, "session-agent-run");
-  assert.equal(lines[29].method, "permissions.capability_grants.revoke");
+  assert.equal(lines[20].method, "agents.runs.resume");
+  assert.equal(lines[20].params.run_id, "session-agent-run");
+  assert.equal(lines[21].method, "agents.runs.get");
+  assert.equal(lines[22].method, "agents.runs.list");
+  assert.equal(lines[23].method, "agents.runs.checklist.update");
+  assert.equal(lines[23].params.checklist[0].status, "completed");
+  assert.equal(lines[24].method, "agents.runs.verification.update");
+  assert.equal(lines[24].params.status, "passed");
+  assert.equal(lines[25].method, "tools.invoke_many");
+  assert.equal(lines[25].params.session_id, "desktop-ui");
+  assert.equal(lines[26].method, "permissions.allow_all_cmd.get");
+  assert.equal(lines[27].method, "permissions.allow_all_cmd.set");
+  assert.equal(lines[27].params.allowed, true);
+  assert.equal(lines[28].method, "permissions.capability_grants.get");
+  assert.equal(lines[29].method, "permissions.capability_grants.set");
   assert.equal(lines[29].params.capability, "shell.execute");
+  assert.equal(lines[29].params.session_id, "desktop-ui");
+  assert.equal(lines[29].params.lifetime, "run");
+  assert.equal(lines[29].params.scope_id, "session-agent-run");
+  assert.equal(lines[30].method, "permissions.capability_grants.revoke");
+  assert.equal(lines[30].params.capability, "shell.execute");
 });
 
 test("core session client forwards events to subscribers", async () => {

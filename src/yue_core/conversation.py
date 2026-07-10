@@ -428,6 +428,51 @@ class ConversationOrchestrator:
         if await self.store.get(conversation_id) is None:
             raise ConversationError(f"Conversation does not exist: {conversation_id}")
 
+        return await self._execute_run(
+            conversation_id,
+            content,
+            provider_name=provider_name,
+            provider_role=provider_role,
+            run_id=run_id,
+            actor=actor,
+            append_user_message=True,
+        )
+
+    async def resume_run(
+        self,
+        conversation_id: str,
+        *,
+        provider_name: str | None = None,
+        provider_role: str = "coding_agent",
+        run_id: str,
+        actor: str = "user",
+    ) -> ChatMessage:
+        if not self._accepting:
+            raise ConversationError("Conversation orchestrator is shutting down")
+        if await self.store.get(conversation_id) is None:
+            raise ConversationError(f"Conversation does not exist: {conversation_id}")
+        return await self._execute_run(
+            conversation_id,
+            "",
+            provider_name=provider_name,
+            provider_role=provider_role,
+            run_id=run_id,
+            actor=actor,
+            append_user_message=False,
+        )
+
+    async def _execute_run(
+        self,
+        conversation_id: str,
+        content: str,
+        *,
+        provider_name: str | None,
+        provider_role: str,
+        run_id: str | None,
+        actor: str,
+        append_user_message: bool,
+    ) -> ChatMessage:
+
         run_id = run_id or str(uuid4())
         if run_id in self._runs:
             raise ConversationError(f"Run id is already active: {run_id}")
@@ -450,6 +495,7 @@ class ConversationOrchestrator:
                     run_id,
                     actor,
                     cancel_event,
+                    append_user_message=append_user_message,
                 )
         finally:
             self._runs.pop(run_id, None)
@@ -483,15 +529,18 @@ class ConversationOrchestrator:
         run_id: str,
         actor: str,
         cancel_event: asyncio.Event,
+        *,
+        append_user_message: bool = True,
     ) -> ChatMessage:
         provider = self.providers.get(provider_name)
-        user_message = ChatMessage(
-            conversation_id=conversation_id,
-            role=MessageRole.USER,
-            content=content,
-            metadata={"actor": actor},
-        )
-        await self._append(user_message, run_id)
+        if append_user_message:
+            user_message = ChatMessage(
+                conversation_id=conversation_id,
+                role=MessageRole.USER,
+                content=content,
+                metadata={"actor": actor, "run_id": run_id},
+            )
+            await self._append(user_message, run_id)
         await self.events.publish(
             CoreEvent(
                 "conversation.run.started",

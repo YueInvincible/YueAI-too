@@ -100,6 +100,13 @@ export class CoreProtocolClient {
     });
   }
 
+  resumeAgentRun(runId, options = {}) {
+    return this.#request("agents.runs.resume", {
+      run_id: runId,
+      actor: options.actor || "desktop-ui",
+    });
+  }
+
   getAgentRun(runId) {
     return this.#request("agents.runs.get", {
       run_id: runId,

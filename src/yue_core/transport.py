@@ -142,6 +142,11 @@ class JsonLineServer:
                     plan=[str(item) for item in plan],
                     metadata=metadata,
                 )
+            elif method == "agents.runs.resume":
+                payload = await self.core.resume_agent_run(
+                    str(params["run_id"]),
+                    actor=str(params.get("actor", "ui")),
+                )
             elif method == "agents.runs.get":
                 run = await self.core.agent_runs.get(params["run_id"])
                 if run is None:

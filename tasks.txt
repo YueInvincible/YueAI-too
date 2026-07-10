@@ -10,6 +10,10 @@ Completed and verified
   status/summary through JSONL update methods.
 - Agent runs now persist persona/provider snapshots and automatically record
   tool/approval references from runtime events.
+- Agent runs are restart-safe at the first recovery boundary: stale active
+  records become `interrupted`, JSONL/desktop clients expose
+  `agents.runs.resume`, durable answers/results are reused, and missing tool
+  results block unsafe replay.
 - The desktop main composer now starts durable `coding_agent` runs in both the
   module and packaged runtime paths; a source regression test keeps both
   entrypoints on `agents.runs.start`.
@@ -36,7 +40,7 @@ Completed and verified
 - Packaged NSIS desktop path has been re-verified green with the richer diagnostic harness; the log reaches `runtime_bootstrap` and `bridge: spawned | core: started`.
 - Packaged NSIS cleanup proof is also green: the app spawns `python -m yue_core ... serve`, and the child exits when the desktop process is terminated.
 - JS protocol tests pass (18/18 on 2026-07-10).
-- Full Python test suite passes (149/149 on 2026-07-10).
+- Full Python test suite passes (154/154 on 2026-07-10).
 
 Known next targets
 ------------------
@@ -52,10 +56,12 @@ Known next targets
 - Treat Codex as the reference for agent loop, sandbox/approval, bounded
   context, config layering, tool contracts, and plugin discipline; Yue should
   extend this into desktop-wide assistance.
-- Core P0 next: design restart-safe resumable runs, then real context
-  compaction/summarization before memory injection. Do not replace durable
+- Core P0 next: add real context compaction/summarization before memory
+  injection. Do not replace durable
   history with truncated context; `ContextWindowPolicy` intentionally bounds
   only the transient model request.
+- Desktop P1 next: render interrupted runs and an explicit Resume action, with
+  blocked-recovery details when durable tool results are missing.
 - Do not write many built-in tools yet. Permission center list/revoke UI,
   audit preview/recent risky actions, and stronger denied metadata display are
   now wired. Next design plugin install/trust lifecycle, then persona schema

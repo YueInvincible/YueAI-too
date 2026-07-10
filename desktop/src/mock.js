@@ -540,6 +540,31 @@ export function createMockTransport() {
             message: createMessage("assistant", `Echo: ${run.user_request}`),
           };
         }
+        case "agents.runs.resume": {
+          const index = agentRuns.findIndex((item) => item.id === params.run_id);
+          if (index < 0) {
+            throw new Error(`Unknown agent run: ${params.run_id}`);
+          }
+          if (agentRuns[index].status !== "interrupted") {
+            throw new Error(`Agent run is not interrupted: ${params.run_id}`);
+          }
+          agentRuns[index] = {
+            ...agentRuns[index],
+            status: "completed",
+            error: null,
+            metadata: {
+              ...agentRuns[index].metadata,
+              resume_attempts: Number(agentRuns[index].metadata?.resume_attempts || 0) + 1,
+            },
+            updated_at: now(),
+            completed_at: now(),
+          };
+          return {
+            run: JSON.parse(JSON.stringify(agentRuns[index])),
+            message: createMessage("assistant", `Echo: ${agentRuns[index].user_request}`),
+            resumed: true,
+          };
+        }
         case "agents.runs.get": {
           const match = agentRuns.find((item) => item.id === params.run_id);
           if (!match) {

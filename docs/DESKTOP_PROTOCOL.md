@@ -91,6 +91,22 @@ This lets a renderer subscribe once and stay event-driven rather than polling.
 When `python -m yue_core serve` is used, these desktop events are forwarded on
 stdout the same way `conversation.*` events are forwarded.
 
+## Agent run recovery
+
+The JSONL surface exposes durable coding-agent runs to desktop clients:
+
+```json
+{"id":"run-1","method":"agents.runs.start","params":{"user_request":"Inspect and fix the project","provider_role":"coding_agent"}}
+{"id":"run-2","method":"agents.runs.resume","params":{"run_id":"agent-run-id","actor":"desktop-ui"}}
+```
+
+After a process restart, stale active records become `interrupted`. Resume is
+explicit and conservative: persisted input and tool results are reused, while
+a tool call without a durable result blocks recovery instead of risking an
+unknown side effect twice. Recovery emits `agent.run.interrupted`,
+`agent.run.resumed`, `agent.run.resume.blocked`, or
+`agent.run.resume.failed` as applicable.
+
 ## Command set
 
 Supported commands:

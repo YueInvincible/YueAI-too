@@ -25,9 +25,20 @@ class AgentRunStatus(str, Enum):
     RUNNING = "running"
     WAITING_APPROVAL = "waiting_approval"
     VERIFYING = "verifying"
+    INTERRUPTED = "interrupted"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+ACTIVE_AGENT_RUN_STATUSES = frozenset(
+    {
+        AgentRunStatus.CREATED,
+        AgentRunStatus.RUNNING,
+        AgentRunStatus.WAITING_APPROVAL,
+        AgentRunStatus.VERIFYING,
+    }
+)
 
 
 class AgentRunStepStatus(str, Enum):
@@ -167,6 +178,9 @@ class AgentRunStore:
     async def list(self, *, limit: int = 100) -> Sequence[AgentRun]:
         raise NotImplementedError
 
+    async def list_active(self) -> Sequence[AgentRun]:
+        raise NotImplementedError
+
     async def update(
         self,
         run_id: str,
@@ -235,6 +249,14 @@ class InMemoryAgentRunStore(AgentRunStore):
                 reverse=True,
             )
             return tuple(runs[: max(0, limit)])
+
+    async def list_active(self) -> Sequence[AgentRun]:
+        async with self._lock:
+            return tuple(
+                run
+                for run in self._runs.values()
+                if run.status in ACTIVE_AGENT_RUN_STATUSES
+            )
 
     async def update(
         self,
@@ -362,6 +384,12 @@ class SQLiteAgentRunStore(AgentRunStore):
         await self.initialize()
         async with self._lock:
             rows = await asyncio.to_thread(self._list_sync, max(0, limit))
+        return tuple(self._from_row(row) for row in rows)
+
+    async def list_active(self) -> Sequence[AgentRun]:
+        await self.initialize()
+        async with self._lock:
+            rows = await asyncio.to_thread(self._list_active_sync)
         return tuple(self._from_row(row) for row in rows)
 
     async def update(
@@ -627,6 +655,19 @@ class SQLiteAgentRunStore(AgentRunStore):
                 LIMIT ?
                 """,
                 (limit,),
+            ).fetchall()
+
+    def _list_active_sync(self):
+        statuses = tuple(status.value for status in ACTIVE_AGENT_RUN_STATUSES)
+        placeholders = ", ".join("?" for _ in statuses)
+        with self._connection() as connection:
+            return connection.execute(
+                f"""
+                SELECT * FROM agent_runs
+                WHERE status IN ({placeholders})
+                ORDER BY updated_at ASC
+                """,
+                statuses,
             ).fetchall()
 
     @classmethod

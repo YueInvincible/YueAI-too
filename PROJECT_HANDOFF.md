@@ -198,7 +198,8 @@ Chi giu 3 thu:
 - Core da co first durable agent-run surface:
   - `SQLiteAgentRunStore` tai `data/agent_runs.db`
   - `YueCore.start_agent_run(...)`
-  - JSONL methods `agents.runs.start`, `agents.runs.get`, `agents.runs.list`
+  - JSONL methods `agents.runs.start`, `agents.runs.resume`,
+    `agents.runs.get`, `agents.runs.list`
   - JSONL methods `agents.runs.checklist.update`,
     `agents.runs.verification.update`
   - desktop protocol/mock/runtime wrappers cho `agents.runs.*`
@@ -214,6 +215,12 @@ Chi giu 3 thu:
     `tool_call_id` neu co trong `ToolRequest.metadata`
   - agent run id duoc dung lam conversation `run_id` de giu timeline/tool
     activity tuong thich voi path hien co.
+  - startup reconcile stale active run thanh `interrupted`;
+  - explicit resume reuse durable input/tool result/final answer;
+  - resume bi block neu tool call thieu durable result de khong lap side effect
+    mu quang;
+  - desktop protocol/mock/runtime/core-session da co wrapper resume, nhung UI
+    action chua render.
 - Main desktop composer gio khoi chay `agents.runs.start` voi role
   `coding_agent` tren ca `app.js` va live packaged path `runtime.js`; test source
   khoa regression de hai entrypoint khong quay lai chat path rieng.
@@ -298,6 +305,16 @@ Chi giu 3 thu:
   - `python -m yue_core --config config.example.toml desktop-demo --headless-smoke-test` chat that qua desktop controller chay duoc;
   - `cargo tauri build --bundles nsis --ci --no-sign` pass.
 - Luu y verify:
+  - re-check ngay 2026-07-10 cho restart-safe agent run resume:
+    - `PYTHONPATH=src;. PYTHONDONTWRITEBYTECODE=1 python -W error::ResourceWarning -m unittest discover -s tests`
+    - `node --check desktop/src/app.js`
+    - `node --check desktop/src/runtime.js`
+    - `node --check desktop/src/protocol.js`
+    - `node --check desktop/src/coreSession.js`
+    - `node --check desktop/src/mock.js`
+    - `node --test desktop/tests/protocol.test.js`
+    - `python -m yue_core --config config.example.toml doctor`
+    - ket qua: Python pass 154/154, JS pass 18/18, syntax + doctor pass.
   - re-check ngay 2026-07-10 cho desktop agent composer + bounded context:
     - `PYTHONPATH=src;. PYTHONDONTWRITEBYTECODE=1 python -W error::ResourceWarning -m unittest discover -s tests`
     - `node --check desktop/src/app.js`
@@ -373,15 +390,17 @@ Chi giu 3 thu:
 
 - Doc `docs/notes/omni_agent_checklist.md` truoc de lay huong san pham moi, sau do doc note domain lien quan.
 - Core/tooling:
-  - uu tien tiep theo la restart-safe resumable agent runs; can audit ky state
-    `running/waiting_approval/verifying` va tranh append lai user/tool message
-    khi resume.
-  - sau resume, them context compaction/summarization truoc memory injection;
+  - restart-safe resumable agent runs da co core/JSONL/client wrapper va test
+    cho duplicate input, durable answer, durable tool result, unsafe dangling
+    tool call; UI Resume action chua co.
+  - uu tien core tiep theo la context compaction/summarization truoc memory injection;
     khong thay durable history bang ban truncate vi bounded context hien chi la
     transient provider request.
   - khong mo rong nhieu built-in tool ngay; permission/plugin install trust
     lifecycle van la target tiep theo sau cac P0 core tren.
 - Desktop/core UX tiep theo:
+  - render interrupted durable runs + explicit Resume action va blocked reason
+    trong Ops/Run inspector;
   - noi packaged/Tauri desktop app vao local runtime hien dang chay that, giam phu thuoc mock/fallback path;
   - neu co the, de desktop tu spawn/stop `llama-server` hoac it nhat hien readiness ro rang cho `127.0.0.1:8080`;
   - debug packaged non-dev path dang dung o diagnostic `scheduled` sau dot startup/config moi;

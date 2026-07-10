@@ -111,6 +111,13 @@ export class CoreSessionClient {
     });
   }
 
+  async resumeAgentRun(runId, options = {}) {
+    return this.client.resumeAgentRun(runId, {
+      ...options,
+      actor: options.actor || "desktop-ui",
+    });
+  }
+
   async getAgentRun(runId) {
     return this.client.getAgentRun(runId);
   }

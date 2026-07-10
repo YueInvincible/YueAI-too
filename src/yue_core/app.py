@@ -11,10 +11,12 @@ from urllib.parse import urlsplit
 
 from .audit import AuditLog
 from .agent_runs import (
+    AgentRunError,
     AgentRunStatus,
     AgentRunVerificationStatus,
     SQLiteAgentRunStore,
 )
+from .agent_run_resume import analyze_agent_run_resume
 from .builtin_tools import (
     ApprovalRequestTool,
     AskUserApprovalTool,
@@ -478,6 +480,131 @@ class YueCore:
                 CoreEvent("agent.run.failed", run.to_dict(), correlation_id=run.id)
             )
             raise
+
+    async def resume_agent_run(
+        self,
+        run_id: str,
+        *,
+        actor: str = "ui",
+    ) -> dict[str, Any]:
+        if not self._started:
+            raise RuntimeError("YueCore must be started before resuming agent runs")
+        run = await self.agent_runs.get(run_id)
+        if run is None:
+            raise AgentRunError(f"Agent run does not exist: {run_id}")
+        if run.status is not AgentRunStatus.INTERRUPTED:
+            raise AgentRunError(
+                f"Agent run is not interrupted: {run_id} ({run.status.value})"
+            )
+
+        messages = await self.conversation_store.messages(run.conversation_id)
+        analysis = analyze_agent_run_resume(run, messages)
+        if analysis.missing_tool_result_ids:
+            payload = {
+                "run_id": run.id,
+                "conversation_id": run.conversation_id,
+                "reason": "missing_durable_tool_results",
+                "tool_call_ids": list(analysis.missing_tool_result_ids),
+            }
+            await self.audit.write("agent.run.resume.blocked", payload)
+            await self.events.publish(
+                CoreEvent("agent.run.resume.blocked", payload, correlation_id=run.id)
+            )
+            raise AgentRunError(
+                "Agent run cannot be resumed safely because tool calls are missing "
+                f"durable results: {', '.join(analysis.missing_tool_result_ids)}"
+            )
+
+        metadata = dict(run.metadata or {})
+        metadata["resume_attempts"] = int(metadata.get("resume_attempts", 0)) + 1
+        metadata["last_resume_actor"] = actor
+        run = await self.agent_runs.update(
+            run.id,
+            status=AgentRunStatus.RUNNING,
+            metadata=metadata,
+            error=None,
+        )
+        await self.audit.write("agent.run.resumed", run.to_dict())
+        await self.events.publish(
+            CoreEvent("agent.run.resumed", run.to_dict(), correlation_id=run.id)
+        )
+
+        try:
+            message = analysis.completed_message
+            if message is None and analysis.has_persisted_input:
+                message = await self.conversations.resume_run(
+                    run.conversation_id,
+                    provider_name=str(run.provider_snapshot.get("provider") or "") or None,
+                    provider_role=run.provider_role,
+                    run_id=run.id,
+                    actor=actor,
+                )
+            elif message is None:
+                message = await self.conversations.send(
+                    run.conversation_id,
+                    run.user_request,
+                    provider_name=str(run.provider_snapshot.get("provider") or "") or None,
+                    provider_role=run.provider_role,
+                    run_id=run.id,
+                    actor=actor,
+                )
+            run = await self.agent_runs.update(
+                run.id,
+                status=AgentRunStatus.COMPLETED,
+                response_message_id=message.id,
+                completed=True,
+            )
+            payload = {**run.to_dict(), "message": message.to_dict(), "resumed": True}
+            await self.audit.write("agent.run.completed", payload)
+            await self.events.publish(
+                CoreEvent("agent.run.completed", payload, correlation_id=run.id)
+            )
+            return {"run": run.to_dict(), "message": message.to_dict(), "resumed": True}
+        except asyncio.CancelledError:
+            run = await self.agent_runs.update(
+                run.id,
+                status=AgentRunStatus.CANCELLED,
+                error="Cancelled",
+                completed=True,
+            )
+            await self.audit.write("agent.run.cancelled", run.to_dict())
+            await self.events.publish(
+                CoreEvent("agent.run.cancelled", run.to_dict(), correlation_id=run.id)
+            )
+            raise
+        except Exception as exc:
+            run = await self.agent_runs.update(
+                run.id,
+                status=AgentRunStatus.INTERRUPTED,
+                error=str(exc),
+            )
+            await self.audit.write("agent.run.resume.failed", run.to_dict())
+            await self.events.publish(
+                CoreEvent("agent.run.resume.failed", run.to_dict(), correlation_id=run.id)
+            )
+            raise
+
+    async def _reconcile_interrupted_agent_runs(self) -> None:
+        for run in await self.agent_runs.list_active():
+            metadata = dict(run.metadata or {})
+            metadata["interruption"] = {
+                "reason": "core_restart",
+                "previous_status": run.status.value,
+            }
+            interrupted = await self.agent_runs.update(
+                run.id,
+                status=AgentRunStatus.INTERRUPTED,
+                metadata=metadata,
+                error="Core restarted before the run reached a terminal state",
+            )
+            await self.audit.write("agent.run.interrupted", interrupted.to_dict())
+            await self.events.publish(
+                CoreEvent(
+                    "agent.run.interrupted",
+                    interrupted.to_dict(),
+                    correlation_id=interrupted.id,
+                )
+            )
 
     async def update_agent_run_checklist(
         self,
@@ -1407,6 +1534,7 @@ class YueCore:
             self.providers.unregister_owner("core")
             raise
         self._started = True
+        await self._reconcile_interrupted_agent_runs()
         await self.events.publish(CoreEvent("core.started", {"version": VERSION}))
 
     async def stop(self) -> None:

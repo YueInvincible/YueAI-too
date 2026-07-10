@@ -42,8 +42,8 @@ Reference points checked:
 - Core already has a usable agent skeleton:
   - `ConversationOrchestrator` with tool-call loop and run events.
   - Durable agent-run records via `SQLiteAgentRunStore`.
-  - JSONL methods `agents.runs.start`, `agents.runs.get`, and
-    `agents.runs.list`.
+  - JSONL methods `agents.runs.start`, `agents.runs.resume`,
+    `agents.runs.get`, and `agents.runs.list`.
   - Structured agent-run checklist and verification state via
     `agents.runs.checklist.update` and `agents.runs.verification.update`.
   - Persona/provider snapshots plus tool/approval references recorded on agent
@@ -93,7 +93,10 @@ Reference points checked:
 - [x] Record approval pending/responded references from runtime events.
 - [x] Add first verification state on durable run records:
   `not_run`, `running`, `passed`, `failed`, `skipped`.
-- [ ] Add resumable runs after desktop/core restart.
+- [x] Add restart-safe resumable runs: startup reconciles stale active states
+  to `interrupted`; explicit resume reuses durable input/tool results, finalizes
+  an already-durable answer, and blocks missing tool results to avoid blind
+  side-effect replay.
 - [ ] Add context compaction before memory is injected into model requests.
 - [x] Bound model-visible system instructions, conversation history, individual
   messages/tool-call arguments, tool count, tool specs, and total tool catalog

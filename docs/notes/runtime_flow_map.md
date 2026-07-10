@@ -177,6 +177,7 @@ Desktop shell UI
     - `agents.bundle`
     - `agents.starter_pack`
     - `agents.runs.start`
+    - `agents.runs.resume`
     - `agents.runs.get`
     - `agents.runs.list`
     - `agents.runs.checklist.update`
@@ -211,6 +212,18 @@ Desktop shell UI
     conversation loop voi `provider_role = coding_agent` mac dinh va dung
     agent run id lam `conversation.run_id` de tool activity/run inspector co
     the map chung mot timeline.
+  - startup reconcile cac status active cu (`created`, `running`,
+    `waiting_approval`, `verifying`) thanh `interrupted` thay vi gia vo run van
+    dang chay sau process restart.
+  - `agents.runs.resume` phan tich durable conversation qua
+    `agent_run_resume.py`:
+    - khong append lai user input da persist;
+    - neu final assistant answer da persist thi finalize record ma khong goi
+      provider lai;
+    - neu tool result da persist thi tiep tuc model loop ma khong execute tool
+      lai;
+    - neu co tool call thieu durable result thi block resume de tranh lap lai
+      side effect khong ro trang thai.
   - `agents.runs.get` va `agents.runs.list` doc lai durable run records tu
     `core.agent_runs`.
   - `agents.runs.checklist.update` ghi structured checklist `id/text/status/note`.
@@ -765,6 +778,8 @@ Doc:
   - `shell.session` publish `shell.session.started` / `read` / `listed` / `stopped`;
   - `agents.runs.start` publish `agent.run.created` / `agent.run.started` /
     `agent.run.completed` / `agent.run.failed` / `agent.run.cancelled`;
+  - restart/resume publish them `agent.run.interrupted`, `agent.run.resumed`,
+    `agent.run.resume.blocked`, `agent.run.resume.failed`;
   - checklist/verification updates publish `agent.run.checklist.updated` va
     `agent.run.verification.updated`;
   - cac action tren cung ghi audit record rieng ngoai `tool.request` / `tool.result`.

@@ -29,7 +29,8 @@ Thu tu uu tien da chot ngay 2026-07-08:
 ### Muc tieu con lai
 
 - Tach agent run state khoi generic chat.
-- Them durable/resumable run record: plan, tool calls, approvals, verification.
+- Durable run record + explicit restart-safe resume da co cho plan, tool calls,
+  approvals va verification; UI resume/recovery control van con thieu.
 - Giu conversation loop, tool loop, cancel/shutdown, va prompt injection on dinh.
 - Giu config/route/prompt profile ro rang.
 - Giu permission boundary va audit trail ro rang.

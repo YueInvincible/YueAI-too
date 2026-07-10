@@ -3,10 +3,12 @@ import json
 import unittest
 
 from tests.support import workspace_temp_dir
+from yue_core.agent_runs import AgentRunError, AgentRunStatus
 from yue_core.app import YueCore
 from yue_core.config import Settings
 from yue_core.contracts import (
     CoreEvent,
+    ChatMessage,
     MessageRole,
     ModelEvent,
     ModelEventType,
@@ -39,6 +41,20 @@ class ToolCallingProvider:
 
 
 class AgentRunTests(unittest.IsolatedAsyncioTestCase):
+    async def _seed_active_run(self, settings, run_id, messages):
+        seed = YueCore(settings)
+        conversation = await seed.conversations.create(metadata={"kind": "agent_run"})
+        await seed.agent_runs.create(
+            conversation_id=conversation.id,
+            user_request="Resume this task",
+            run_id=run_id,
+            provider_snapshot={"provider": "fake.echo"},
+        )
+        for message in messages(conversation.id):
+            await seed.conversation_store.append(message)
+        await seed.agent_runs.update(run_id, status=AgentRunStatus.RUNNING)
+        return conversation.id
+
     async def test_agent_run_completes_and_persists(self):
         with workspace_temp_dir() as temp:
             settings = Settings()
@@ -310,6 +326,213 @@ class AgentRunTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(approval["approval_id"], "approval-1")
         self.assertEqual(approval["tool"], "shell.run")
         self.assertTrue(approval["approved"])
+
+    async def test_restart_marks_active_run_interrupted_then_resumes_without_duplicate_user(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            run_id = "restart-resume-run"
+            await self._seed_active_run(
+                settings,
+                run_id,
+                lambda conversation_id: (
+                    ChatMessage(
+                        conversation_id=conversation_id,
+                        role=MessageRole.USER,
+                        content="Resume this task",
+                        metadata={"actor": "desktop-ui", "run_id": run_id},
+                    ),
+                ),
+            )
+
+            core = YueCore(settings)
+            await core.start()
+            interrupted = await core.agent_runs.get(run_id)
+            result = await core.resume_agent_run(run_id, actor="desktop-ui")
+            messages = await core.conversation_store.messages(
+                result["run"]["conversation_id"]
+            )
+            await core.stop()
+
+        self.assertIsNotNone(interrupted)
+        self.assertEqual(interrupted.status, AgentRunStatus.INTERRUPTED)
+        self.assertEqual(
+            interrupted.metadata["interruption"]["previous_status"],
+            "running",
+        )
+        self.assertTrue(result["resumed"])
+        self.assertEqual(result["run"]["status"], "completed")
+        self.assertEqual(result["run"]["metadata"]["resume_attempts"], 1)
+        self.assertEqual(result["message"]["content"], "Echo: Resume this task")
+        self.assertEqual(
+            sum(message.role is MessageRole.USER for message in messages),
+            1,
+        )
+
+    async def test_resume_finalizes_existing_answer_without_calling_provider_again(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            run_id = "answer-already-durable"
+            await self._seed_active_run(
+                settings,
+                run_id,
+                lambda conversation_id: (
+                    ChatMessage(
+                        conversation_id=conversation_id,
+                        role=MessageRole.USER,
+                        content="Resume this task",
+                        metadata={"run_id": run_id},
+                    ),
+                    ChatMessage(
+                        conversation_id=conversation_id,
+                        role=MessageRole.ASSISTANT,
+                        content="Already finished",
+                        metadata={"run_id": run_id},
+                    ),
+                ),
+            )
+            core = YueCore(settings)
+            await core.start()
+            result = await core.resume_agent_run(run_id)
+            messages = await core.conversation_store.messages(
+                result["run"]["conversation_id"]
+            )
+            await core.stop()
+
+        self.assertEqual(result["message"]["content"], "Already finished")
+        self.assertEqual(len(messages), 2)
+
+    async def test_resume_blocks_dangling_tool_call_without_durable_result(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            run_id = "unsafe-tool-resume"
+            await self._seed_active_run(
+                settings,
+                run_id,
+                lambda conversation_id: (
+                    ChatMessage(
+                        conversation_id=conversation_id,
+                        role=MessageRole.USER,
+                        content="Resume this task",
+                        metadata={"run_id": run_id},
+                    ),
+                    ChatMessage(
+                        conversation_id=conversation_id,
+                        role=MessageRole.ASSISTANT,
+                        tool_calls=(
+                            ModelToolCall(
+                                name="workspace_write",
+                                arguments={"path": "unsafe.txt", "content": "x"},
+                                id="dangling-call",
+                            ),
+                        ),
+                        metadata={"run_id": run_id},
+                    ),
+                ),
+            )
+            core = YueCore(settings)
+            await core.start()
+            with self.assertRaisesRegex(AgentRunError, "missing durable results"):
+                await core.resume_agent_run(run_id)
+            run = await core.agent_runs.get(run_id)
+            await core.stop()
+
+        self.assertIsNotNone(run)
+        self.assertEqual(run.status, AgentRunStatus.INTERRUPTED)
+
+    async def test_resume_continues_after_durable_tool_result_without_reexecution(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            run_id = "durable-tool-result-resume"
+            await self._seed_active_run(
+                settings,
+                run_id,
+                lambda conversation_id: (
+                    ChatMessage(
+                        conversation_id=conversation_id,
+                        role=MessageRole.USER,
+                        content="Resume this task",
+                        metadata={"run_id": run_id},
+                    ),
+                    ChatMessage(
+                        conversation_id=conversation_id,
+                        role=MessageRole.ASSISTANT,
+                        tool_calls=(
+                            ModelToolCall(
+                                name="core.echo",
+                                arguments={"text": "already executed"},
+                                id="durable-call",
+                            ),
+                        ),
+                        metadata={"run_id": run_id},
+                    ),
+                    ChatMessage(
+                        conversation_id=conversation_id,
+                        role=MessageRole.TOOL,
+                        content='{"ok": true, "output": {"text": "already executed"}}',
+                        tool_call_id="durable-call",
+                        tool_name="core.echo",
+                        metadata={"run_id": run_id},
+                    ),
+                ),
+            )
+            core = YueCore(settings)
+            await core.start()
+            core.providers.register(ToolCallingProvider(), owner="test")
+            interrupted = await core.agent_runs.get(run_id)
+            await core.agent_runs.update(
+                run_id,
+                provider_snapshot={"provider": "test.tool_calling"},
+            )
+            result = await core.resume_agent_run(run_id)
+            messages = await core.conversation_store.messages(
+                result["run"]["conversation_id"]
+            )
+            await core.stop()
+
+        self.assertIsNotNone(interrupted)
+        self.assertEqual(result["message"]["content"], "Tool reference complete")
+        self.assertEqual(
+            sum(message.role is MessageRole.TOOL for message in messages),
+            1,
+        )
+
+    async def test_agent_run_resume_transport_round_trip(self):
+        with workspace_temp_dir() as temp:
+            settings = Settings()
+            settings.core.data_dir = temp
+            run_id = "transport-resume-run"
+            await self._seed_active_run(
+                settings,
+                run_id,
+                lambda conversation_id: (
+                    ChatMessage(
+                        conversation_id=conversation_id,
+                        role=MessageRole.USER,
+                        content="Resume this task",
+                        metadata={"run_id": run_id},
+                    ),
+                ),
+            )
+            core = YueCore(settings)
+            server = JsonLineServer(core)
+            async with core:
+                response = await server.handle_line(
+                    json.dumps(
+                        {
+                            "id": "resume",
+                            "method": "agents.runs.resume",
+                            "params": {"run_id": run_id, "actor": "desktop-ui"},
+                        }
+                    )
+                )
+
+        self.assertTrue(response["ok"])
+        self.assertTrue(response["result"]["resumed"])
+        self.assertEqual(response["result"]["run"]["status"], "completed")
 
 
 if __name__ == "__main__":
