@@ -220,8 +220,10 @@ Reference points checked:
 - [ ] Make the desktop shell the real control surface for agent runs, not only
   chat messages.
   - The main composer now starts `agents.runs.start` with role `coding_agent`
-    in both `app.js` and the packaged `runtime.js`; checklist/verification and
-    resume controls still need first-class UI.
+    in both `app.js` and the packaged `runtime.js`.
+  - Ops now lists durable runs, prioritizes `interrupted` runs, refreshes from
+    core, exposes explicit Resume, and keeps blocked recovery errors visible;
+    checklist/verification controls still need first-class UI.
 - [ ] Add a simple default settings view:
   - provider/model;
   - personality;

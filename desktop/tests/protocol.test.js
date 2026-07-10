@@ -10,6 +10,9 @@ import {
   applyAgentBundleStatus,
   applyAgentStarterPack,
   applyAgentStarterPackStatus,
+  applyAgentRuns,
+  applyAgentRunEvent,
+  applyAgentRunRecoveryStatus,
   applyAllowAllCmdGrant,
   applyAllowAllCmdStatus,
   applyAuditPreview,
@@ -75,6 +78,9 @@ test("module and packaged desktop entrypoints start first-class agent runs", () 
     assert.match(sendMessage, /providerRole:\s*"coding_agent"/);
     assert.doesNotMatch(sendMessage, /client\.sendConversationMessage/);
     assert.doesNotMatch(sendMessage, /client\.createConversation/);
+    assert.match(source, /async function resumeDurableAgentRun\(runId\)/);
+    assert.match(source, /client\.resumeAgentRun\(runId/);
+    assert.match(source, /client\.listAgentRuns\(\{ limit: 20 \}\)/);
   }
 });
 import { createMockTransport } from "../src/mock.js";
@@ -422,6 +428,35 @@ test("mock transport supports the current desktop shell flow", async () => {
   assert.equal(auditPreview.some((item) => item.category === "permission.decision"), true);
 });
 
+test("mock transport resumes seeded interrupted durable runs", async () => {
+  const client = new CoreProtocolClient(
+    createMockTransport({
+      agentRuns: [
+        {
+          id: "mock-interrupted-run",
+          conversation_id: "mock-conversation",
+          user_request: "Resume mock work",
+          provider_role: "coding_agent",
+          status: "interrupted",
+          metadata: {},
+          error: "Core restarted",
+          updated_at: "2026-07-10T00:00:00Z",
+          completed_at: null,
+        },
+      ],
+    }),
+  );
+
+  const before = await client.listAgentRuns();
+  const resumed = await client.resumeAgentRun("mock-interrupted-run");
+  const after = await client.getAgentRun("mock-interrupted-run");
+
+  assert.equal(before[0].status, "interrupted");
+  assert.equal(resumed.resumed, true);
+  assert.equal(resumed.run.status, "completed");
+  assert.equal(after.metadata.resume_attempts, 1);
+});
+
 test("mock active provider updates persist the selected runtime config", async () => {
   const client = new CoreProtocolClient(createMockTransport());
 
@@ -591,6 +626,21 @@ test("desktop view-state helpers preserve immutable updates", () => {
     withAgentStarterPack,
     "Agent starter pack synced",
   );
+  const withAgentRuns = applyAgentRuns(withAgentStarterPackStatus, [
+    {
+      id: "run-interrupted",
+      user_request: "Resume work",
+      status: "interrupted",
+    },
+  ]);
+  const withAgentRunStatus = applyAgentRunRecoveryStatus(
+    withAgentRuns,
+    "Resume blocked: missing durable tool result",
+  );
+  const withCompletedAgentRun = applyAgentRunEvent(withAgentRunStatus, {
+    id: "run-interrupted",
+    status: "completed",
+  });
   const withGrant = applyAllowAllCmdGrant(withToolStatus, {
     allow_all_cmd: true,
     updated_by: "desktop-ui",
@@ -708,6 +758,13 @@ test("desktop view-state helpers preserve immutable updates", () => {
   assert.equal(withAgentBundleStatus.agentBundleStatus, "Agent bundle synced");
   assert.equal(withAgentStarterPack.agentStarterPackStatus, "coding_agent starter pack ready");
   assert.equal(withAgentStarterPackStatus.agentStarterPackStatus, "Agent starter pack synced");
+  assert.equal(withAgentRuns.agentRuns[0].status, "interrupted");
+  assert.equal(withAgentRuns.agentRunRecoveryStatus, "1 interrupted run ready for review");
+  assert.equal(
+    withAgentRunStatus.agentRunRecoveryStatus,
+    "Resume blocked: missing durable tool result",
+  );
+  assert.equal(withCompletedAgentRun.agentRuns[0].status, "completed");
   assert.equal(withGrant.allowAllCmd, true);
   assert.equal(withGrant.allowAllCmdUpdatedBy, "desktop-ui");
   assert.equal(withGrant.capabilityGrants[0].capability, "shell.execute");

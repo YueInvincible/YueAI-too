@@ -50,6 +50,10 @@
   - poll `bridge_drain_events`
   - apply `desktop.state.changed`
   - render `conversation.delta` trong native mode
+  - list durable agent runs trong Ops va refresh theo yeu cau;
+  - uu tien run `interrupted`, resume qua `agents.runs.resume`, va hien blocked
+    recovery error neu tool result khong durable;
+  - giu recovery flow dong bo trong ca `app.js` va live `runtime.js`.
 - Frontend shell da co approval flow trong console:
   - doc `approval.pending.list`
   - react voi event `approval.pending` / `approval.responded`

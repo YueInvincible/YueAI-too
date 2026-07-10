@@ -14,6 +14,9 @@ Completed and verified
   records become `interrupted`, JSONL/desktop clients expose
   `agents.runs.resume`, durable answers/results are reused, and missing tool
   results block unsafe replay.
+- Ops now exposes durable run recovery on both module and packaged paths:
+  interrupted runs sort first, refresh/list are explicit, Resume calls the
+  safe core API, and blocked recovery details remain visible.
 - The desktop main composer now starts durable `coding_agent` runs in both the
   module and packaged runtime paths; a source regression test keeps both
   entrypoints on `agents.runs.start`.
@@ -39,7 +42,7 @@ Completed and verified
 - Desktop Tauri diagnostic harness now retries packaged bootstrap probes and writes richer stages (`probe_dispatching`, `probe_dispatched`, `probe_timeout`) for NSIS debugging.
 - Packaged NSIS desktop path has been re-verified green with the richer diagnostic harness; the log reaches `runtime_bootstrap` and `bridge: spawned | core: started`.
 - Packaged NSIS cleanup proof is also green: the app spawns `python -m yue_core ... serve`, and the child exits when the desktop process is terminated.
-- JS protocol tests pass (18/18 on 2026-07-10).
+- JS protocol tests pass (19/19 on 2026-07-10).
 - Full Python test suite passes (154/154 on 2026-07-10).
 
 Known next targets
@@ -60,8 +63,8 @@ Known next targets
   injection. Do not replace durable
   history with truncated context; `ContextWindowPolicy` intentionally bounds
   only the transient model request.
-- Desktop P1 next: render interrupted runs and an explicit Resume action, with
-  blocked-recovery details when durable tool results are missing.
+- Desktop P1 next: add first-class durable checklist/verification controls and
+  stronger native end-to-end interaction coverage.
 - Do not write many built-in tools yet. Permission center list/revoke UI,
   audit preview/recent risky actions, and stronger denied metadata display are
   now wired. Next design plugin install/trust lifecycle, then persona schema

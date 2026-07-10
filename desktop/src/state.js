@@ -46,6 +46,8 @@ export function defaultDesktopViewState() {
     agentBundleStatus: "Agent bundle unavailable",
     agentStarterPack: null,
     agentStarterPackStatus: "Agent starter pack unavailable",
+    agentRuns: [],
+    agentRunRecoveryStatus: "No durable runs loaded",
     allowAllCmd: false,
     allowAllCmdUpdatedBy: "none",
     allowAllCmdStatus: "Session shell grant disabled",
@@ -511,6 +513,42 @@ export function applyAuditPreviewStatus(state, auditPreviewStatus) {
   };
 }
 
+export function applyAgentRuns(state, runs = []) {
+  const agentRuns = Array.isArray(runs) ? JSON.parse(JSON.stringify(runs)) : [];
+  const interrupted = agentRuns.filter((run) => run.status === "interrupted").length;
+  return {
+    ...state,
+    agentRuns,
+    agentRunRecoveryStatus:
+      interrupted > 0
+        ? `${interrupted} interrupted run${interrupted === 1 ? "" : "s"} ready for review`
+        : agentRuns.length > 0
+          ? `${agentRuns.length} durable run${agentRuns.length === 1 ? "" : "s"} loaded`
+          : "No durable runs found",
+  };
+}
+
+export function applyAgentRunRecoveryStatus(state, agentRunRecoveryStatus) {
+  return {
+    ...state,
+    agentRunRecoveryStatus: agentRunRecoveryStatus || state.agentRunRecoveryStatus,
+  };
+}
+
+export function applyAgentRunEvent(state, payload = {}) {
+  if (!payload.id) {
+    return state;
+  }
+  const current = Array.isArray(state.agentRuns) ? [...state.agentRuns] : [];
+  const index = current.findIndex((run) => run.id === payload.id);
+  if (index >= 0) {
+    current[index] = { ...current[index], ...JSON.parse(JSON.stringify(payload)) };
+  } else {
+    current.unshift(JSON.parse(JSON.stringify(payload)));
+  }
+  return applyAgentRuns(state, current);
+}
+
 export function applyParallelInspectStatus(state, parallelInspectStatus) {
   return {
     ...state,
@@ -915,6 +953,10 @@ export function applyCoreEvent(state, event = {}) {
   const topic = event?.topic;
   const payload = event?.payload || {};
   const withToolActivity = applyToolActivityEvent(state, event);
+
+  if (topic?.startsWith("agent.run.") && payload.id) {
+    return applyAgentRunEvent(withToolActivity, payload);
+  }
 
   if (
     topic === "tool.finished" &&

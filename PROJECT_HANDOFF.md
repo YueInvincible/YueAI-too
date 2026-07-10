@@ -219,8 +219,9 @@ Chi giu 3 thu:
   - explicit resume reuse durable input/tool result/final answer;
   - resume bi block neu tool call thieu durable result de khong lap side effect
     mu quang;
-  - desktop protocol/mock/runtime/core-session da co wrapper resume, nhung UI
-    action chua render.
+  - desktop protocol/mock/runtime/core-session da co wrapper resume;
+  - Ops co durable recovery list/refresh/Resume, interrupted sort truoc, va
+    hien blocked error; ca `app.js` va live `runtime.js` da dong bo.
 - Main desktop composer gio khoi chay `agents.runs.start` voi role
   `coding_agent` tren ca `app.js` va live packaged path `runtime.js`; test source
   khoa regression de hai entrypoint khong quay lai chat path rieng.
@@ -305,6 +306,12 @@ Chi giu 3 thu:
   - `python -m yue_core --config config.example.toml desktop-demo --headless-smoke-test` chat that qua desktop controller chay duoc;
   - `cargo tauri build --bundles nsis --ci --no-sign` pass.
 - Luu y verify:
+  - re-check ngay 2026-07-10 cho desktop durable recovery UI:
+    - full Python unittest pass 154/154;
+    - JS protocol/state/mock/source regression pass 19/19;
+    - syntax `app.js`, `runtime.js`, `state.js`, `protocol.js`,
+      `coreSession.js`, `mock.js` pass;
+    - `python -m yue_core --config config.example.toml doctor` pass.
   - re-check ngay 2026-07-10 cho restart-safe agent run resume:
     - `PYTHONPATH=src;. PYTHONDONTWRITEBYTECODE=1 python -W error::ResourceWarning -m unittest discover -s tests`
     - `node --check desktop/src/app.js`
@@ -392,15 +399,15 @@ Chi giu 3 thu:
 - Core/tooling:
   - restart-safe resumable agent runs da co core/JSONL/client wrapper va test
     cho duplicate input, durable answer, durable tool result, unsafe dangling
-    tool call; UI Resume action chua co.
+    tool call; Ops UI list/refresh/Resume + blocked error da co.
   - uu tien core tiep theo la context compaction/summarization truoc memory injection;
     khong thay durable history bang ban truncate vi bounded context hien chi la
     transient provider request.
   - khong mo rong nhieu built-in tool ngay; permission/plugin install trust
     lifecycle van la target tiep theo sau cac P0 core tren.
 - Desktop/core UX tiep theo:
-  - render interrupted durable runs + explicit Resume action va blocked reason
-    trong Ops/Run inspector;
+  - them checklist/verification controls cho durable run va native interaction
+    E2E coverage manh hon;
   - noi packaged/Tauri desktop app vao local runtime hien dang chay that, giam phu thuoc mock/fallback path;
   - neu co the, de desktop tu spawn/stop `llama-server` hoac it nhat hien readiness ro rang cho `127.0.0.1:8080`;
   - debug packaged non-dev path dang dung o diagnostic `scheduled` sau dot startup/config moi;

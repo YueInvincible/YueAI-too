@@ -988,7 +988,10 @@ select.message-input {
 
 .permission-center-head,
 .permission-grant-head,
-.permission-grant-actions {
+.permission-grant-actions,
+.recovery-head,
+.agent-run-recovery-head,
+.agent-run-recovery-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -998,6 +1001,44 @@ select.message-input {
 .permission-grants-list {
   display: grid;
   gap: 10px;
+}
+
+.agent-run-recovery-list {
+  display: grid;
+  gap: 10px;
+}
+
+.agent-run-recovery-row {
+  display: grid;
+  gap: 8px;
+  padding: 12px 13px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.agent-run-recovery-row.attention {
+  border-color: rgba(255, 212, 71, 0.36);
+  box-shadow: inset 0 0 0 1px rgba(255, 212, 71, 0.1);
+}
+
+.agent-run-recovery-title {
+  min-width: 0;
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 720;
+  overflow-wrap: anywhere;
+}
+
+.agent-run-recovery-meta,
+.agent-run-recovery-error {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.agent-run-recovery-error {
+  color: var(--danger);
 }
 
 .permission-grant-title {

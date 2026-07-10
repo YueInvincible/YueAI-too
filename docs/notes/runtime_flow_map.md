@@ -238,8 +238,11 @@ Desktop shell UI
     `run_id`; approval bridge forward them `run_id`, `conversation_id`,
     `tool_call_id` tu `ToolRequest.metadata`.
   - Desktop protocol/mock/runtime clients da co wrapper cho `agents.runs.*`.
-    Main composer hien goi `agents.runs.start` voi role `coding_agent`; UI van
-    chua co controls rieng cho resume/checklist/verification.
+    Main composer hien goi `agents.runs.start` voi role `coding_agent`.
+  - Ops co `Durable run recovery`: bootstrap/list/refresh durable runs, dua
+    `interrupted` len truoc, goi Resume ro rang, refresh tool snapshot sau
+    recovery, va giu error text neu core block unsafe replay.
+  - UI van chua co controls rieng cho checklist/verification.
   - CLI gio co `export-agent-starter-pack` de xuat payload nay truc tiep tu terminal ma khong can mo desktop shell.
   - CLI format hien co gom ca full pack va focused slices: `manifest-json`, `system-prompt`, `starter-prompt`, `checklist`.
   - starter pack markdown gio co them muc `Common tool recipes` de human/operator copy nhanh workflow dung tool.

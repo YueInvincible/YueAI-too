@@ -18,11 +18,11 @@ function defaultState() {
   };
 }
 
-export function createMockTransport() {
+export function createMockTransport(options = {}) {
   const state = defaultState();
   let conversationCounter = 0;
-  let agentRunCounter = 0;
-  let agentRuns = [];
+  let agentRuns = JSON.parse(JSON.stringify(options.agentRuns || []));
+  let agentRunCounter = agentRuns.length;
   let conversationSettings = {
     default_provider: "localhost.chat",
     routes: {

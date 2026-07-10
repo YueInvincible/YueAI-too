@@ -355,6 +355,8 @@
       agentBundleStatus: "Agent bundle unavailable",
       agentStarterPack: null,
       agentStarterPackStatus: "Agent starter pack unavailable",
+      agentRuns: [],
+      agentRunRecoveryStatus: "No durable runs loaded",
       allowAllCmd: false,
       allowAllCmdUpdatedBy: "none",
       allowAllCmdStatus: "Session shell grant disabled",
@@ -816,6 +818,42 @@
     };
   }
 
+  function applyAgentRuns(state, runs = []) {
+    const agentRuns = Array.isArray(runs) ? JSON.parse(JSON.stringify(runs)) : [];
+    const interrupted = agentRuns.filter((run) => run.status === "interrupted").length;
+    return {
+      ...state,
+      agentRuns,
+      agentRunRecoveryStatus:
+        interrupted > 0
+          ? `${interrupted} interrupted run${interrupted === 1 ? "" : "s"} ready for review`
+          : agentRuns.length > 0
+            ? `${agentRuns.length} durable run${agentRuns.length === 1 ? "" : "s"} loaded`
+            : "No durable runs found",
+    };
+  }
+
+  function applyAgentRunRecoveryStatus(state, agentRunRecoveryStatus) {
+    return {
+      ...state,
+      agentRunRecoveryStatus: agentRunRecoveryStatus || state.agentRunRecoveryStatus,
+    };
+  }
+
+  function applyAgentRunEvent(state, payload = {}) {
+    if (!payload.id) {
+      return state;
+    }
+    const current = Array.isArray(state.agentRuns) ? [...state.agentRuns] : [];
+    const index = current.findIndex((run) => run.id === payload.id);
+    if (index >= 0) {
+      current[index] = { ...current[index], ...JSON.parse(JSON.stringify(payload)) };
+    } else {
+      current.unshift(JSON.parse(JSON.stringify(payload)));
+    }
+    return applyAgentRuns(state, current);
+  }
+
   function applyParallelInspectStatus(state, parallelInspectStatus) {
     return {
       ...state,
@@ -1087,6 +1125,10 @@
     const payload = event?.payload || {};
     const withToolActivity = applyToolActivityEvent(state, event);
 
+    if (topic?.startsWith("agent.run.") && payload.id) {
+      return applyAgentRunEvent(withToolActivity, payload);
+    }
+
     if (
       topic === "tool.finished" &&
       (payload.request_id || payload.tool_call_id || payload.run_id)
@@ -1321,11 +1363,11 @@
     }
   }
 
-  function createMockTransport() {
+  function createMockTransport(options = {}) {
     const state = defaultMockState();
     let conversationCounter = 0;
-    let agentRunCounter = 0;
-    let agentRuns = [];
+    let agentRuns = JSON.parse(JSON.stringify(options.agentRuns || []));
+    let agentRunCounter = agentRuns.length;
     let conversationSettings = {
       default_provider: "localhost.chat",
       routes: {
@@ -2371,6 +2413,9 @@
   const providerOptions = document.querySelector("#provider-options");
   const runInspectorStatusLine = document.querySelector("#run-inspector-status-line");
   const runInspectorList = document.querySelector("#run-inspector-list");
+  const agentRunRecoveryStatusLine = document.querySelector("#agent-run-recovery-status-line");
+  const agentRunRecoveryRefreshButton = document.querySelector("#agent-run-recovery-refresh-button");
+  const agentRunRecoveryList = document.querySelector("#agent-run-recovery-list");
   const opsDrawer = document.querySelector("#ops-drawer");
   const configDrawer = document.querySelector("#config-drawer");
   const opsDrawerButton = document.querySelector("#ops-drawer-button");
@@ -2868,6 +2913,7 @@
     settingsStatusLine.textContent = state.settingsStatus;
     providerConfigStatusLine.textContent = state.providerConfigStatus;
     anthropicConfigStatusLine.textContent = state.anthropicConfigStatus;
+    agentRunRecoveryStatusLine.textContent = state.agentRunRecoveryStatus;
     runInspectorStatusLine.textContent = describeRunInspectorStatus(state);
     allowAllCmdStatusLine.textContent = state.allowAllCmdStatus;
     permissionCenterStatusLine.textContent = state.capabilityGrantsStatus;
@@ -3099,6 +3145,8 @@
     anthropicTemperatureInput.value = String(selectedAnthropicConfig?.temperature ?? "");
     anthropicMaxTokensInput.value = String(selectedAnthropicConfig?.max_tokens ?? "");
     renderHeaderRows(anthropicHeadersList, selectedAnthropicConfig?.headers || {});
+
+    renderAgentRunRecoveryList();
 
     runInspectorList.replaceChildren();
     const runInspectorItems = buildRunInspectorItems(state);
@@ -3876,6 +3924,135 @@
     return groups;
   }
 
+  function renderAgentRunRecoveryList() {
+    agentRunRecoveryList.replaceChildren();
+    const runs = [...(state.agentRuns || [])]
+      .sort((left, right) => {
+        const leftInterrupted = left.status === "interrupted" ? 1 : 0;
+        const rightInterrupted = right.status === "interrupted" ? 1 : 0;
+        if (leftInterrupted !== rightInterrupted) {
+          return rightInterrupted - leftInterrupted;
+        }
+        return String(right.updated_at || "").localeCompare(String(left.updated_at || ""));
+      })
+      .slice(0, 8);
+    if (runs.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "run-inspector-empty";
+      empty.textContent = "No durable agent runs are available yet.";
+      agentRunRecoveryList.append(empty);
+      return;
+    }
+    for (const run of runs) {
+      agentRunRecoveryList.append(renderAgentRunRecoveryRow(run));
+    }
+  }
+
+  function renderAgentRunRecoveryRow(run) {
+    const row = document.createElement("article");
+    row.className = `agent-run-recovery-row ${run.status === "interrupted" ? "attention" : ""}`;
+
+    const head = document.createElement("div");
+    head.className = "agent-run-recovery-head";
+    const title = document.createElement("div");
+    title.className = "agent-run-recovery-title";
+    title.textContent = summarizeDesktopText(run.user_request || "Agent run", 120);
+    head.append(
+      title,
+      createToolBadge(
+        run.status || "unknown",
+        run.status === "completed" ? "safe" : run.status === "interrupted" ? "risky" : "neutral",
+      ),
+    );
+
+    const meta = document.createElement("div");
+    meta.className = "agent-run-recovery-meta";
+    meta.textContent = [
+      run.id ? `run ${run.id}` : null,
+      run.provider_role || null,
+      run.metadata?.interruption?.previous_status
+        ? `was ${run.metadata.interruption.previous_status}`
+        : null,
+      run.updated_at ? `updated ${run.updated_at}` : null,
+    ]
+      .filter(Boolean)
+      .join(" | ");
+
+    const error = document.createElement("div");
+    error.className = "agent-run-recovery-error";
+    error.textContent = run.error || "";
+    error.hidden = !run.error;
+
+    const actions = document.createElement("div");
+    actions.className = "agent-run-recovery-actions";
+    if (run.status === "interrupted") {
+      const resumeButton = document.createElement("button");
+      resumeButton.className = "send-button inline-button";
+      resumeButton.type = "button";
+      resumeButton.textContent = "Resume";
+      resumeButton.addEventListener("click", async () => {
+        await resumeDurableAgentRun(run.id);
+      });
+      actions.append(resumeButton);
+    }
+
+    row.append(head, meta, error, actions);
+    return row;
+  }
+
+  async function refreshAgentRuns() {
+    state = applyAgentRunRecoveryStatus(state, "Refreshing durable runs...");
+    render();
+    try {
+      state = applyAgentRuns(state, await client.listAgentRuns({ limit: 20 }));
+    } catch (error) {
+      state = applyAgentRunRecoveryStatus(
+        state,
+        `Run refresh failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    render();
+  }
+
+  async function resumeDurableAgentRun(runId) {
+    state = applyAgentRunRecoveryStatus(state, `Resuming ${runId}...`);
+    render();
+    try {
+      await client.desktopCommand("presence.set", "thinking", sessionId);
+      const response = await client.resumeAgentRun(runId, { actor: "desktop-ui" });
+      if (!usingNativeBridge && response.message) {
+        state = appendMessage(state, {
+          role: "assistant",
+          text: response.message.text || response.message.content || "",
+          kind: "assistant_turn",
+          run_id: response.run?.id || runId,
+          conversation_id: response.run?.conversation_id || null,
+        });
+      }
+      state = applyToolActivitySnapshot(state, await client.getToolActivitySnapshot());
+      state = applyAgentRuns(state, await client.listAgentRuns({ limit: 20 }));
+      state = applyAgentRunRecoveryStatus(state, `Run ${runId} resumed`);
+    } catch (error) {
+      state = applyAgentRunRecoveryStatus(
+        state,
+        `Resume blocked: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      try {
+        state = applyAgentRuns(state, await client.listAgentRuns({ limit: 20 }));
+      } catch {
+        // Keep the actionable resume error when refresh also fails.
+      }
+    } finally {
+      try {
+        const after = await client.desktopCommand("presence.set", "idle", sessionId);
+        state = applyDesktopSnapshot(state, after.state);
+      } catch {
+        // Recovery result remains useful even if presence reset fails.
+      }
+    }
+    render();
+  }
+
   function renderRunInspectorGroup(group) {
     const block = document.createElement("section");
     block.className = "run-inspector-group";
@@ -4580,6 +4757,7 @@
     await refreshActiveProviderCatalog({ draft: state.activeProviderDraft });
     state = applyPendingApprovals(state, await client.listPendingApprovals());
     state = applyToolActivitySnapshot(state, await client.getToolActivitySnapshot());
+    state = applyAgentRuns(state, await client.listAgentRuns({ limit: 20 }));
     state = applyToolsCatalog(state, await client.listTools());
     state = applyToolGuide(state, await client.getToolsGuide({ providerRole: "coding_agent" }));
     state = applyPromptPreview(state, await client.getConversationPromptPreview({ providerRole: "coding_agent" }));
@@ -4787,6 +4965,14 @@
         run_id: runId,
         conversation_id: conversationId,
       });
+    }
+    try {
+      state = applyAgentRuns(state, await client.listAgentRuns({ limit: 20 }));
+    } catch (error) {
+      state = applyAgentRunRecoveryStatus(
+        state,
+        `Run refresh failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
     const after = await client.desktopCommand("presence.set", "idle", sessionId);
     state = applyDesktopSnapshot(state, after.state);
@@ -5494,6 +5680,10 @@
 
   permissionCenterRefreshButton?.addEventListener("click", async () => {
     await refreshCapabilityGrants();
+  });
+
+  agentRunRecoveryRefreshButton?.addEventListener("click", async () => {
+    await refreshAgentRuns();
   });
 
   permissionAuditRefreshButton?.addEventListener("click", async () => {

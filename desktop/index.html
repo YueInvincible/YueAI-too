@@ -129,6 +129,17 @@
 
             <aside id="ops-drawer" class="control-stack utility-drawer">
               <section class="control-block">
+                <div class="section-head recovery-head">
+                  <div>
+                    <div class="section-label">Durable run recovery</div>
+                    <div id="agent-run-recovery-status-line" class="section-copy">No durable runs loaded</div>
+                  </div>
+                  <button id="agent-run-recovery-refresh-button" class="ghost-button inline-button" type="button">Refresh runs</button>
+                </div>
+                <div id="agent-run-recovery-list" class="agent-run-recovery-list"></div>
+              </section>
+
+              <section class="control-block">
                 <div class="section-head drawer-head">
                   <div>
                     <div class="section-label">Run inspector</div>
