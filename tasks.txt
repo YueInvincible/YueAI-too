@@ -10,6 +10,12 @@ Completed and verified
   status/summary through JSONL update methods.
 - Agent runs now persist persona/provider snapshots and automatically record
   tool/approval references from runtime events.
+- The desktop main composer now starts durable `coding_agent` runs in both the
+  module and packaged runtime paths; a source regression test keeps both
+  entrypoints on `agents.runs.start`.
+- Core now applies a dedicated configurable `ContextWindowPolicy` before every
+  provider request, bounding system/history/message/tool-call/tool-catalog
+  fragments while preserving full durable conversation records.
 - Permission core now has session capability/resource grants exposed through
   JSONL `permissions.capability_grants.get/set` and desktop protocol/mock/runtime
   wrappers; grants cannot bypass the active profile or be changed by `model`.
@@ -29,8 +35,8 @@ Completed and verified
 - Desktop Tauri diagnostic harness now retries packaged bootstrap probes and writes richer stages (`probe_dispatching`, `probe_dispatched`, `probe_timeout`) for NSIS debugging.
 - Packaged NSIS desktop path has been re-verified green with the richer diagnostic harness; the log reaches `runtime_bootstrap` and `bridge: spawned | core: started`.
 - Packaged NSIS cleanup proof is also green: the app spawns `python -m yue_core ... serve`, and the child exits when the desktop process is terminated.
-- JS protocol tests pass.
-- Full Python test suite passes.
+- JS protocol tests pass (18/18 on 2026-07-10).
+- Full Python test suite passes (149/149 on 2026-07-10).
 
 Known next targets
 ------------------
@@ -46,6 +52,10 @@ Known next targets
 - Treat Codex as the reference for agent loop, sandbox/approval, bounded
   context, config layering, tool contracts, and plugin discipline; Yue should
   extend this into desktop-wide assistance.
+- Core P0 next: design restart-safe resumable runs, then real context
+  compaction/summarization before memory injection. Do not replace durable
+  history with truncated context; `ContextWindowPolicy` intentionally bounds
+  only the transient model request.
 - Do not write many built-in tools yet. Permission center list/revoke UI,
   audit preview/recent risky actions, and stronger denied metadata display are
   now wired. Next design plugin install/trust lifecycle, then persona schema

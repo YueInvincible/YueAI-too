@@ -871,6 +871,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                     )
                 )
         self.assertTrue(current["ok"])
+        self.assertEqual(current["result"]["context_window"]["max_model_tools"], 64)
         self.assertEqual(
             updated["result"]["prompt_profiles"]["default"]["personality"],
             "Concise",

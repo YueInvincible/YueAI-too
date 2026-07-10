@@ -214,6 +214,16 @@ Chi giu 3 thu:
     `tool_call_id` neu co trong `ToolRequest.metadata`
   - agent run id duoc dung lam conversation `run_id` de giu timeline/tool
     activity tuong thich voi path hien co.
+- Main desktop composer gio khoi chay `agents.runs.start` voi role
+  `coding_agent` tren ca `app.js` va live packaged path `runtime.js`; test source
+  khoa regression de hai entrypoint khong quay lai chat path rieng.
+- Core co `ContextWindowPolicy` rieng tai `src/yue_core/context_window.py`:
+  - bound system instruction, recent history, tung message, historical
+    tool-call arguments;
+  - bound so tool, tung tool spec, va tong tool catalog truoc provider request;
+  - giu nguyen durable conversation history, chi bound transient model context;
+  - config limit nam trong `[conversation]` va snapshot settings expose
+    `context_window` read-only.
 - Core + desktop shell da co conversation route/prompt editor voi 2 che do:
   - apply runtime;
   - save nguoc lai TOML cho `conversation` config.
@@ -288,6 +298,14 @@ Chi giu 3 thu:
   - `python -m yue_core --config config.example.toml desktop-demo --headless-smoke-test` chat that qua desktop controller chay duoc;
   - `cargo tauri build --bundles nsis --ci --no-sign` pass.
 - Luu y verify:
+  - re-check ngay 2026-07-10 cho desktop agent composer + bounded context:
+    - `PYTHONPATH=src;. PYTHONDONTWRITEBYTECODE=1 python -W error::ResourceWarning -m unittest discover -s tests`
+    - `node --check desktop/src/app.js`
+    - `node --check desktop/src/runtime.js`
+    - `node --check desktop/src/state.js`
+    - `node --test desktop/tests/protocol.test.js`
+    - `python -m yue_core --config config.example.toml doctor`
+    - ket qua: Python pass 149/149, JS pass 18/18, syntax + doctor pass.
   - nhung thay doi UI moi nhat quanh `Run inspector` collapse/group/open-run duoc code xong sau dot verify gan nhat theo yeu cau user "cu tiep tuc code";
   - lan verify desktop gan nhat truoc dot UI moi nhat la:
     - `node --check desktop/src/app.js`
@@ -355,7 +373,14 @@ Chi giu 3 thu:
 
 - Doc `docs/notes/omni_agent_checklist.md` truoc de lay huong san pham moi, sau do doc note domain lien quan.
 - Core/tooling:
-  - khong mo rong nhieu built-in tool ngay; scoped capability/resource grant da co qua JSONL va desktop wrapper, revoke + lifetime `once/run/conversation/session` da co, denied result da co `denial_category` + `resource_scope`, permission center list/revoke UI + audit preview + denied metadata display da co, tiep theo design plugin install/manifest/trust lifecycle.
+  - uu tien tiep theo la restart-safe resumable agent runs; can audit ky state
+    `running/waiting_approval/verifying` va tranh append lai user/tool message
+    khi resume.
+  - sau resume, them context compaction/summarization truoc memory injection;
+    khong thay durable history bang ban truncate vi bounded context hien chi la
+    transient provider request.
+  - khong mo rong nhieu built-in tool ngay; permission/plugin install trust
+    lifecycle van la target tiep theo sau cac P0 core tren.
 - Desktop/core UX tiep theo:
   - noi packaged/Tauri desktop app vao local runtime hien dang chay that, giam phu thuoc mock/fallback path;
   - neu co the, de desktop tu spawn/stop `llama-server` hoac it nhat hien readiness ro rang cho `127.0.0.1:8080`;

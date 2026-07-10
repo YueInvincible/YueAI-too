@@ -26,6 +26,10 @@ class ConfigTests(unittest.TestCase):
 default_provider = "demo.provider"
 max_tool_iterations = 2
 max_tool_output_chars = 2048
+max_history_messages = 20
+max_history_chars = 8192
+max_message_chars = 2048
+max_system_instruction_chars = 4096
 
 [conversation.routes.chat]
 provider = "demo.chat"
@@ -59,12 +63,29 @@ tool_instruction = "Use tools when needed."
         self.assertEqual(settings.conversation.store_backend, "sqlite")
         self.assertEqual(settings.conversation.max_tool_iterations, 2)
         self.assertEqual(settings.conversation.max_tool_output_chars, 2048)
+        self.assertEqual(settings.conversation.max_history_messages, 20)
+        self.assertEqual(settings.conversation.max_history_chars, 8192)
+        self.assertEqual(settings.conversation.max_message_chars, 2048)
+        self.assertEqual(settings.conversation.max_system_instruction_chars, 4096)
+        self.assertEqual(settings.conversation.max_model_tools, 64)
+        self.assertEqual(settings.conversation.max_tool_spec_chars, 8000)
+        self.assertEqual(settings.conversation.max_tool_catalog_chars, 48000)
 
     def test_rejects_too_small_tool_output_limit(self):
         with workspace_temp_dir() as temp:
             path = temp / "config.toml"
             path.write_text(
                 "[conversation]\nmax_tool_output_chars = 10\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(ConfigurationError):
+                load_settings(path, base_dir=temp)
+
+    def test_rejects_message_limit_larger_than_history_budget(self):
+        with workspace_temp_dir() as temp:
+            path = temp / "config.toml"
+            path.write_text(
+                "[conversation]\nmax_history_chars = 1024\nmax_message_chars = 2048\n",
                 encoding="utf-8",
             )
             with self.assertRaises(ConfigurationError):

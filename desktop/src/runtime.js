@@ -4722,10 +4722,6 @@
   }
 
   async function sendMessage(text) {
-    if (!state.conversationId) {
-      const conversation = await client.createConversation();
-      state = setConversationId(state, conversation.id);
-    }
     state = appendMessage(state, {
       ...createMessage("user", text),
       kind: "user_turn",
@@ -4735,15 +4731,29 @@
     await client.desktopCommand("presence.set", "thinking", sessionId);
     state = applyDesktopSnapshot(state, await client.desktopState());
     render();
-    const response = await client.sendConversationMessage(state.conversationId, text);
-    state = linkLatestUserMessageToRun(state, response.run_id, state.conversationId);
+    const response = await client.startAgentRun(text, {
+      conversationId: state.conversationId,
+      providerRole: "coding_agent",
+      actor: "desktop-ui",
+      metadata: { surface: "desktop-shell" },
+    });
+    const run = response.run || {};
+    const runId = run.id || response.run_id || response.message?.metadata?.run_id || null;
+    const conversationId = run.conversation_id || response.conversation_id || state.conversationId || null;
+    if (conversationId && conversationId !== state.conversationId) {
+      state = setConversationId(state, conversationId);
+    }
+    state = linkLatestUserMessageToRun(state, runId, conversationId);
+    if (response.tool_activity) {
+      state = applyToolActivitySnapshot(state, response.tool_activity);
+    }
     if (!usingNativeBridge) {
       state = appendMessage(state, {
         role: "assistant",
-        text: response.message.text || response.message.content || "",
+        text: response.message?.text || response.message?.content || "",
         kind: "assistant_turn",
-        run_id: response.run_id || null,
-        conversation_id: state.conversationId,
+        run_id: runId,
+        conversation_id: conversationId,
       });
     }
     const after = await client.desktopCommand("presence.set", "idle", sessionId);

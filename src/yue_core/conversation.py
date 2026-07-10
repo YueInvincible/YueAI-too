@@ -26,6 +26,7 @@ from .contracts import (
     ToolStatus,
     utc_now,
 )
+from .context_window import ContextWindowPolicy
 from .errors import YueCoreError
 from .events import EventBus
 from .providers import ModelProviderRegistry
@@ -367,6 +368,7 @@ class ConversationOrchestrator:
         prompt_profiles: Mapping[str, Mapping[str, str]] | None = None,
         max_tool_iterations: int = 4,
         max_tool_output_chars: int = 12000,
+        context_policy: ContextWindowPolicy | None = None,
     ) -> None:
         self.store = store
         self.providers = providers
@@ -381,6 +383,7 @@ class ConversationOrchestrator:
         }
         self.max_tool_iterations = max_tool_iterations
         self.max_tool_output_chars = max_tool_output_chars
+        self.context_policy = context_policy or ContextWindowPolicy()
         self._runs: dict[str, _RunState] = {}
         self._conversation_locks: dict[str, asyncio.Lock] = {}
         self._accepting = True
@@ -516,7 +519,9 @@ class ConversationOrchestrator:
         try:
             for iteration in range(self.max_tool_iterations + 1):
                 self._raise_if_cancelled(cancel_event)
-                history = await self.store.messages(conversation_id)
+                history = self.context_policy.bound_history(
+                    await self.store.messages(conversation_id)
+                )
                 request = ModelRequest(
                     conversation_id=conversation_id,
                     messages=self._request_messages(
@@ -780,7 +785,9 @@ class ConversationOrchestrator:
         }
 
     def _model_tools(self, provider_role: str):
-        return filter_tool_specs_for_role(self.tools.list_specs(), provider_role)
+        return self.context_policy.bound_tools(
+            filter_tool_specs_for_role(self.tools.list_specs(), provider_role)
+        )
 
     def prompt_preview(self, provider_role: str = "chat") -> dict[str, Any]:
         return {
@@ -817,7 +824,9 @@ class ConversationOrchestrator:
         *,
         provider_role: str,
     ) -> Sequence[ChatMessage]:
-        system_instruction = self._system_instruction(provider_role)
+        system_instruction = self.context_policy.bound_system_instruction(
+            self._system_instruction(provider_role)
+        )
         if not system_instruction:
             return history
         return (

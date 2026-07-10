@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { CoreProtocolClient, createMessage } from "../src/protocol.js";
 import {
@@ -58,6 +59,24 @@ import {
   setConversationId,
   toggleRunGroupCollapsed,
 } from "../src/state.js";
+
+function desktopSendMessageSource(source) {
+  const start = source.indexOf("async function sendMessage(text)");
+  const end = source.indexOf("async function respondToApproval", start);
+  assert.ok(start >= 0 && end > start, "desktop sendMessage implementation must remain discoverable");
+  return source.slice(start, end);
+}
+
+test("module and packaged desktop entrypoints start first-class agent runs", () => {
+  for (const relativePath of ["../src/app.js", "../src/runtime.js"]) {
+    const source = readFileSync(new URL(relativePath, import.meta.url), "utf8");
+    const sendMessage = desktopSendMessageSource(source);
+    assert.match(sendMessage, /client\.startAgentRun\(text/);
+    assert.match(sendMessage, /providerRole:\s*"coding_agent"/);
+    assert.doesNotMatch(sendMessage, /client\.sendConversationMessage/);
+    assert.doesNotMatch(sendMessage, /client\.createConversation/);
+  }
+});
 import { createMockTransport } from "../src/mock.js";
 import {
   TauriEventPump,

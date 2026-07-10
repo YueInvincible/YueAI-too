@@ -95,7 +95,9 @@ Reference points checked:
   `not_run`, `running`, `passed`, `failed`, `skipped`.
 - [ ] Add resumable runs after desktop/core restart.
 - [ ] Add context compaction before memory is injected into model requests.
-- [ ] Bound every model-visible fragment by token/char limits.
+- [x] Bound model-visible system instructions, conversation history, individual
+  messages/tool-call arguments, tool count, tool specs, and total tool catalog
+  through the dedicated `ContextWindowPolicy` before provider serialization.
 - [ ] Add integration tests for multi-step inspect/edit/verify flows.
 - [ ] Avoid growing `app.py`, `conversation.py`, and `builtin_tools.py` further;
   split new concepts into dedicated modules.
@@ -214,6 +216,9 @@ Reference points checked:
 
 - [ ] Make the desktop shell the real control surface for agent runs, not only
   chat messages.
+  - The main composer now starts `agents.runs.start` with role `coding_agent`
+    in both `app.js` and the packaged `runtime.js`; checklist/verification and
+    resume controls still need first-class UI.
 - [ ] Add a simple default settings view:
   - provider/model;
   - personality;

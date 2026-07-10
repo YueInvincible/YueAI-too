@@ -72,6 +72,13 @@ class ConversationSettings:
     sqlite_path: Path = Path("conversations.db")
     max_tool_iterations: int = 4
     max_tool_output_chars: int = 12000
+    max_history_messages: int = 64
+    max_history_chars: int = 48000
+    max_message_chars: int = 12000
+    max_system_instruction_chars: int = 16000
+    max_model_tools: int = 64
+    max_tool_spec_chars: int = 8000
+    max_tool_catalog_chars: int = 48000
 
 
 @dataclass(slots=True)
@@ -124,6 +131,13 @@ DEFAULTS: dict[str, Any] = {
         "sqlite_path": "data/conversations.db",
         "max_tool_iterations": 4,
         "max_tool_output_chars": 12000,
+        "max_history_messages": 64,
+        "max_history_chars": 48000,
+        "max_message_chars": 12000,
+        "max_system_instruction_chars": 16000,
+        "max_model_tools": 64,
+        "max_tool_spec_chars": 8000,
+        "max_tool_catalog_chars": 48000,
     },
     "desktop": {
         "hotkey": "Ctrl+Shift+Y",
@@ -321,6 +335,13 @@ def dump_settings(settings: Settings) -> str:
             "sqlite_path": settings.conversation.sqlite_path,
             "max_tool_iterations": settings.conversation.max_tool_iterations,
             "max_tool_output_chars": settings.conversation.max_tool_output_chars,
+            "max_history_messages": settings.conversation.max_history_messages,
+            "max_history_chars": settings.conversation.max_history_chars,
+            "max_message_chars": settings.conversation.max_message_chars,
+            "max_system_instruction_chars": settings.conversation.max_system_instruction_chars,
+            "max_model_tools": settings.conversation.max_model_tools,
+            "max_tool_spec_chars": settings.conversation.max_tool_spec_chars,
+            "max_tool_catalog_chars": settings.conversation.max_tool_catalog_chars,
             "routes": settings.conversation.routes,
             "prompt_profiles": settings.conversation.prompt_profiles,
         },
@@ -378,10 +399,41 @@ def load_settings(path: Path | None = None, *, base_dir: Path | None = None) -> 
             raise ValueError("core.tool_timeout_seconds must be positive")
         max_tool_iterations = int(raw["conversation"]["max_tool_iterations"])
         max_tool_output_chars = int(raw["conversation"]["max_tool_output_chars"])
+        max_history_messages = int(raw["conversation"]["max_history_messages"])
+        max_history_chars = int(raw["conversation"]["max_history_chars"])
+        max_message_chars = int(raw["conversation"]["max_message_chars"])
+        max_system_instruction_chars = int(
+            raw["conversation"]["max_system_instruction_chars"]
+        )
+        max_model_tools = int(raw["conversation"]["max_model_tools"])
+        max_tool_spec_chars = int(raw["conversation"]["max_tool_spec_chars"])
+        max_tool_catalog_chars = int(raw["conversation"]["max_tool_catalog_chars"])
         if max_tool_iterations < 0:
             raise ValueError("conversation.max_tool_iterations must be non-negative")
         if max_tool_output_chars < 256:
             raise ValueError("conversation.max_tool_output_chars must be at least 256")
+        if max_history_messages < 4:
+            raise ValueError("conversation.max_history_messages must be at least 4")
+        if max_history_chars < 1024:
+            raise ValueError("conversation.max_history_chars must be at least 1024")
+        if max_message_chars < 256:
+            raise ValueError("conversation.max_message_chars must be at least 256")
+        if max_message_chars > max_history_chars:
+            raise ValueError(
+                "conversation.max_message_chars must not exceed max_history_chars"
+            )
+        if max_system_instruction_chars < 256:
+            raise ValueError(
+                "conversation.max_system_instruction_chars must be at least 256"
+            )
+        if max_model_tools < 1:
+            raise ValueError("conversation.max_model_tools must be positive")
+        if max_tool_spec_chars < 256:
+            raise ValueError("conversation.max_tool_spec_chars must be at least 256")
+        if max_tool_catalog_chars < max_tool_spec_chars:
+            raise ValueError(
+                "conversation.max_tool_catalog_chars must be at least max_tool_spec_chars"
+            )
         store_backend = str(raw["conversation"]["store_backend"])
         if store_backend not in {"memory", "sqlite"}:
             raise ValueError("conversation.store_backend must be memory or sqlite")
@@ -455,6 +507,13 @@ def load_settings(path: Path | None = None, *, base_dir: Path | None = None) -> 
                 ).resolve(),
                 max_tool_iterations=max_tool_iterations,
                 max_tool_output_chars=max_tool_output_chars,
+                max_history_messages=max_history_messages,
+                max_history_chars=max_history_chars,
+                max_message_chars=max_message_chars,
+                max_system_instruction_chars=max_system_instruction_chars,
+                max_model_tools=max_model_tools,
+                max_tool_spec_chars=max_tool_spec_chars,
+                max_tool_catalog_chars=max_tool_catalog_chars,
             ),
             desktop=DesktopSettings(
                 hotkey=str(raw["desktop"]["hotkey"]),

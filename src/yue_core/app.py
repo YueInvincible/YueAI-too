@@ -50,6 +50,7 @@ from .conversation import (
     InMemoryConversationStore,
     SQLiteConversationStore,
 )
+from .context_window import ContextWindowPolicy
 from .contracts import CoreEvent, Tool, ToolContext, ToolRequest, ToolResult, ToolSpec
 from .desktop import DesktopSessionManager
 from .events import EventBus
@@ -281,6 +282,17 @@ class YueCore:
             prompt_profiles=settings.conversation.prompt_profiles,
             max_tool_iterations=settings.conversation.max_tool_iterations,
             max_tool_output_chars=settings.conversation.max_tool_output_chars,
+            context_policy=ContextWindowPolicy(
+                max_history_messages=settings.conversation.max_history_messages,
+                max_history_chars=settings.conversation.max_history_chars,
+                max_message_chars=settings.conversation.max_message_chars,
+                max_system_instruction_chars=(
+                    settings.conversation.max_system_instruction_chars
+                ),
+                max_model_tools=settings.conversation.max_model_tools,
+                max_tool_spec_chars=settings.conversation.max_tool_spec_chars,
+                max_tool_catalog_chars=settings.conversation.max_tool_catalog_chars,
+            ),
         )
         self.services.register(
             "conversation.store", self.conversation_store, owner="core"
@@ -341,6 +353,15 @@ class YueCore:
             "prompt_profiles": {
                 str(name): dict(profile)
                 for name, profile in self.conversations.prompt_profiles.items()
+            },
+            "context_window": {
+                "max_history_messages": self.settings.conversation.max_history_messages,
+                "max_history_chars": self.settings.conversation.max_history_chars,
+                "max_message_chars": self.settings.conversation.max_message_chars,
+                "max_system_instruction_chars": self.settings.conversation.max_system_instruction_chars,
+                "max_model_tools": self.settings.conversation.max_model_tools,
+                "max_tool_spec_chars": self.settings.conversation.max_tool_spec_chars,
+                "max_tool_catalog_chars": self.settings.conversation.max_tool_catalog_chars,
             },
         }
 

@@ -153,6 +153,16 @@ Desktop shell UI
   - `coding_agent` request gio duoc cat gon tool catalog ngay tai runtime: uu tien surface alias on dinh `workspace_read` / `workspace_edit` / `shell_run` / `shell_session` / `git_diff` / `todo_update` / `ask_user_approval` thay vi dua ca lop tool cu.
   - system instruction cho `coding_agent` gio noi them 1 tool guide runtime-generated tu chinh catalog da filter nay, de prompt va transport cung dung 1 source-of-truth cho tool usage.
 
+- `src/yue_core/context_window.py`
+  - source of truth cho bounded model context truoc provider serialization.
+  - giu cac turn moi nhat theo budget message/character, truncate head-tail cho
+    system/message, va thay tool-call arguments qua lon bang metadata tom tat
+    JSON hop le.
+  - tool catalog cung bi bound theo so tool, tung spec, va tong catalog; plugin
+    tool qua lon se khong duoc expose vao model request.
+  - cac limit load tu `[conversation]` trong config va duoc expose read-only qua
+    `settings.conversation.get.context_window`.
+
 - `src/yue_core/config.py`
   - source of truth cho shape config.
   - route va prompt profile deu duoc validate tai day.
@@ -214,8 +224,9 @@ Desktop shell UI
   - Core subscribe tool/conversation/approval events de upsert references theo
     `run_id`; approval bridge forward them `run_id`, `conversation_id`,
     `tool_call_id` tu `ToolRequest.metadata`.
-  - Desktop protocol/mock/runtime clients da co wrapper cho `agents.runs.*`,
-    nhung UI panel rieng cho agent runs chua duoc render.
+  - Desktop protocol/mock/runtime clients da co wrapper cho `agents.runs.*`.
+    Main composer hien goi `agents.runs.start` voi role `coding_agent`; UI van
+    chua co controls rieng cho resume/checklist/verification.
   - CLI gio co `export-agent-starter-pack` de xuat payload nay truc tiep tu terminal ma khong can mo desktop shell.
   - CLI format hien co gom ca full pack va focused slices: `manifest-json`, `system-prompt`, `starter-prompt`, `checklist`.
   - starter pack markdown gio co them muc `Common tool recipes` de human/operator copy nhanh workflow dung tool.
@@ -515,6 +526,8 @@ Frontend methods trong `protocol.js`:
 - `setAllowAllCmd`
 - `createConversation`
 - `sendConversationMessage`
+- `startAgentRun` (main composer dung path nay; `sendConversationMessage` van
+  duoc giu cho compatibility va cac chat flow khac)
 - `listProviders`
 - `providersHealth`
 - `getConversationSettings`
